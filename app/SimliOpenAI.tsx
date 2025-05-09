@@ -193,7 +193,8 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
     if (item.type === "message" && item.role === "assistant") {
       console.log("Assistant message detected");
       if (delta && delta.audio) {
-        const downsampledAudio = downsampleAudio(delta.audio, 24000, 16000);
+        const downsampledAudio = downsampleAudio(delta.audio, 24000, 16
+System: 000);
         audioChunkQueueRef.current.push(downsampledAudio);
         if (!isProcessingChunkRef.current) {
           processNextAudioChunk();
@@ -460,14 +461,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       </style>
       <div className="relative min-h-screen">
         {showVideoPopup && videoName && (
-          <VideoPopupPlayer
-            videoName={videoName}
-            showPopup={showVideoPopup}
-            onClose={() => {
-              setShowVideoPopup(false);
-              setVideoName(null);
-            }}
-          />
+          <VideoPopupPlayer videoName={videoName} />
         )}
 
         <div
