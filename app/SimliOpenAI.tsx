@@ -7,21 +7,9 @@ import cn from "./utils/TailwindMergeAndClsx";
 import IconExit from "@/media/IconExit";
 import IconSparkleLoader from "@/media/IconSparkleLoader";
 
-interface SimliOpenAIProps {
-  simli_faceid: string;
-  openai_voice: "alloy" | "ash" | "ballad" | "coral" | "echo" | "sage" | "shimmer" | "verse";
-  openai_model: string;
-  initialPrompt: string;
-  openai_api_key: string;
-  userId: string;
-  onStart: () => void;
-  onClose: () => void;
-  showDottedFace: boolean;
-}
-
 const simliClient = new SimliClient();
 
-const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
+const SimliOpenAI = ({
   simli_faceid,
   openai_voice,
   openai_model,
@@ -38,18 +26,22 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
   const [error, setError] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [userMessage, setUserMessage] = useState("...");
-  const [videoName, setVideoName] = useState<string | null>(null);
-  const [useFullscreenVideo, setUseFullscreenVideo] = useState(false); // Toggle for fullscreen vs popup video
+  const [videoName, setVideoName] = useState(null);
+  const [useFullscreenVideo] = useState(true);
+  const [avatarPosition, setAvatarPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
 
   // Refs for various components and states
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const openAIClientRef = useRef<RealtimeClient | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
-  const audioChunkQueueRef = useRef<Int16Array[]>([]);
+  const videoRef = useRef(null);
+  const audioRef = useRef(null);
+  const openAIClientRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const streamRef = useRef(null);
+  const processorRef = useRef(null);
+  const audioChunkQueueRef = useRef([]);
   const isProcessingChunkRef = useRef(false);
+  const avatarRef = useRef(null);
+  const dragStartRef = useRef({ x: 0, y: 0 });
 
   /**
    * Initializes the Simli client with the provided configuration.
@@ -60,14 +52,14 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
         apiKey: process.env.NEXT_PUBLIC_SIMLI_API_KEY,
         faceID: simli_faceid,
         handleSilence: true,
-        maxSessionLength: 30600, // in seconds
-        maxIdleTime: 30600, // in seconds
+        maxSessionLength: 30600,
+        maxIdleTime: 30600,
         videoRef: videoRef.current,
         audioRef: audioRef.current,
         enableConsoleLogs: true,
       };
 
-      simliClient.Initialize(SimliConfig as any);
+      simliClient.Initialize(SimliConfig);
       console.log("Simli Client initialized");
     }
   }, [simli_faceid]);
@@ -91,7 +83,6 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
         input_audio_transcription: { model: "whisper-1" },
       });
 
-      // Add tool for getting product details
       openAIClientRef.current.addTool(
         {
           name: "get_product_details",
@@ -112,7 +103,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
             required: ["query", "userid"],
           },
         },
-        async ({ query, userid }: { query: string; userid: string }) => {
+        async ({ query, userid }) => {
           try {
             const result = await fetch("https://app.holoagent.ai/query", {
               method: "POST",
@@ -130,62 +121,92 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
         }
       );
 
-      // Add tool for playing product video
       openAIClientRef.current.addTool(
         {
           name: "play_product_video",
           description:
-            "plays the video of the product that user needs from the memory. If the video is not in memory, it will call the knowledge base to fetch the video. If the video link is not available, or if it looks invalid, it will call the knowledge base to fetch the video",
+            "Fetches and plays the video of the product based on the query. If the video_url is provided and valid, it will play that video. Otherwise, it will fetch the video URL from the knowledge base.",
           parameters: {
             type: "object",
             properties: {
               query: {
                 type: "string",
                 description:
-                  "This is the video about the product that user needs from knowledge base. This is the request that this llm will send to knowledge base llm",
+                  "The query about the product video that will be sent to the knowledge base.",
               },
               video_url: {
                 type: "string",
                 description:
-                  "This is the video url that user needs to play from knowledge base. If the video is not in memory, it will call the knowledge base with query to fetch the video and play it. This is just the video URL without any other text. Ends with .mp4",
+                  "The video URL to play. If not provided or invalid, the video will be fetched using the query. Must end with .mp4.",
               },
               userid: {
                 type: "string",
-                description: "This the user id that this llm will send to knowledge base llm. Send the current user id",
+                description: "The user ID to send to the knowledge base.",
               },
             },
-            required: ["query", "video_url", "userid"],
+            required: ["query", "userid"],
+            additionalProperties: false,
           },
         },
-        async ({
-          query,
-          video_url,
-          userid,
-        }: {
-          query: string;
-          video_url: string;
-          userid: string;
-        }) => {
+        async ({ query, video_url, userid }) => {
+          console.log("play_product_video tool called with parameters:", {
+            query,
+            video_url,
+            userid,
+          });
+
           try {
+            // Check if video_url is provided and valid (ends with .mp4)
+            if (video_url && video_url.endsWith(".mp4")) {
+              console.log("Valid video_url provided, setting videoName:", video_url);
+              setVideoName(video_url);
+              return { message: "Playing video from provided URL", video_url };
+            }
+
+            // If no valid video_url, fetch from the knowledge base
+            console.log("No valid video_url provided, fetching from API...");
+            const requestPayload = { query, userid: simli_faceid };
+            console.log("API request payload:", requestPayload);
+
             const result = await fetch("https://app.holoagent.ai/video", {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
               },
-              body: JSON.stringify({ query, userid }),
+              body: JSON.stringify(requestPayload),
             });
-            if (!result.ok) throw new Error("Failed to fetch video");
-            const json = await result.json();
-            if (video_url) setVideoName(video_url);
-            return json;
+
+            console.log("API response status:", result.status, result.statusText);
+            if (!result.ok) {
+              throw new Error(`Failed to fetch video: ${result.statusText}`);
+            }
+
+            const responseData = await result.json();
+            console.log("Raw API response:", responseData);
+
+            // Check if the response contains a valid video URL
+            if (
+              responseData &&
+              responseData.response &&
+              typeof responseData.response === "string" &&
+              responseData.response.endsWith(".mp4")
+            ) {
+              console.log("Valid video URL received from API, setting videoName:", responseData.response);
+              setVideoName(responseData.response);
+              setAvatarPosition({ x: 0, y: 0 }); // Reset avatar position
+              return { message: "Video fetched and playing", video_url: responseData.response };
+            } else {
+              console.log("Invalid or missing video URL in response:", responseData);
+              throw new Error("Invalid or missing video URL in response");
+            }
           } catch (err) {
-            console.error("Error fetching video:", err);
-            return { error: "Failed to retrieve video" };
+            console.error("Error in play_product_video:", err);
+            setError(`Failed to fetch or play video: ${err.message}`);
+            return { error: "Failed to fetch or play video", details: err.message };
           }
         }
       );
 
-      // Set up event listeners
       openAIClientRef.current.on("conversation.updated", handleConversationUpdate);
       openAIClientRef.current.on("conversation.interrupted", interruptConversation);
       openAIClientRef.current.on("input_audio_buffer.speech_stopped", handleSpeechStopped);
@@ -196,7 +217,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       startRecording();
 
       setIsAvatarVisible(true);
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error initializing OpenAI client:", error);
       setError(`Failed to initialize OpenAI client: ${error.message}`);
     }
@@ -205,7 +226,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
   /**
    * Handles conversation updates, including user and assistant messages.
    */
-  const handleConversationUpdate = useCallback((event: any) => {
+  const handleConversationUpdate = useCallback((event) => {
     console.log("Conversation updated:", event);
     const { item, delta } = event;
 
@@ -241,7 +262,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       const audioChunk = audioChunkQueueRef.current.shift();
       if (audioChunk) {
         const chunkDurationMs = (audioChunk.length / 16000) * 1000;
-        simliClient?.sendAudioData(audioChunk as any);
+        simliClient?.sendAudioData(audioChunk);
         console.log(
           "Sent audio chunk to Simli: Duration:",
           chunkDurationMs.toFixed(2),
@@ -256,18 +277,14 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
   /**
    * Handles the end of user speech.
    */
-  const handleSpeechStopped = useCallback((event: any) => {
+  const handleSpeechStopped = useCallback((event) => {
     console.log("Speech stopped event received", event);
   }, []);
 
   /**
    * Applies a simple low-pass filter to prevent aliasing of audio
    */
-  const applyLowPassFilter = (
-    data: Int16Array,
-    cutoffFreq: number,
-    sampleRate: number
-  ): Int16Array => {
+  const applyLowPassFilter = (data, cutoffFreq, sampleRate) => {
     const numberOfTaps = 31;
     const coefficients = new Float32Array(numberOfTaps);
     const fc = cutoffFreq / sampleRate;
@@ -304,13 +321,8 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
 
   /**
    * Downsamples audio data from one sample rate to another using linear interpolation
-   * and anti-aliasing filter.
    */
-  const downsampleAudio = (
-    audioData: Int16Array,
-    inputSampleRate: number,
-    outputSampleRate: number
-  ): Int16Array => {
+  const downsampleAudio = (audioData, inputSampleRate, outputSampleRate) => {
     if (inputSampleRate === outputSampleRate) {
       return audioData;
     }
@@ -413,7 +425,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       initializeSimliClient();
       await simliClient?.start();
       eventListenerSimli();
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error starting interaction:", error);
       setError(`Error starting interaction: ${error.message}`);
     } finally {
@@ -431,6 +443,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
     stopRecording();
     setIsAvatarVisible(false);
     setVideoName(null);
+    setAvatarPosition({ x: 0, y: 0 });
     simliClient?.close();
     openAIClientRef.current?.disconnect();
     if (audioContextRef.current) {
@@ -462,6 +475,54 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
     }
   }, [initializeOpenAIClient]);
 
+  /**
+   * Handles video close event
+   */
+  const handleVideoClose = useCallback(() => {
+    setVideoName(null);
+    setAvatarPosition({ x: 0, y: 0 });
+  }, []);
+
+  /**
+   * Draggable avatar handlers
+   */
+  const handleMouseDown = (e) => {
+    if (videoName && useFullscreenVideo) {
+      setIsDragging(true);
+      dragStartRef.current = {
+        x: e.clientX - avatarPosition.x,
+        y: e.clientY - avatarPosition.y,
+      };
+      e.preventDefault();
+    }
+  };
+
+  const handleMouseMove = useCallback(
+    (e) => {
+      if (isDragging) {
+        const newX = e.clientX - dragStartRef.current.x;
+        const newY = e.clientY - dragStartRef.current.y;
+        setAvatarPosition({ x: newX, y: newY });
+      }
+    },
+    [isDragging]
+  );
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDragging, handleMouseMove]);
+
   return (
     <>
       <style>
@@ -476,32 +537,74 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
             50% { background-position: 100% 50%; }
             100% { background-position: 0% 50%; }
           }
+          .avatar-slide-in {
+            animation: avatarSlideIn 0.5s ease-out forwards;
+          }
+          .avatar-slide-out {
+            animation: avatarSlideOut 0.5s ease-in forwards;
+          }
+          @keyframes avatarSlideIn {
+            from {
+              transform: translateY(100%) scale(0.7);
+              opacity: 0.8;
+            }
+            to {
+              transform: translateY(0) scale(1);
+              opacity: 1;
+            }
+          }
+          @keyframes avatarSlideOut {
+            from {
+              transform: translateY(0) scale(1);
+              opacity: 1;
+            }
+            to {
+              transform: translateY(100%) scale(0.7);
+              opacity: 0.8;
+            }
+          }
+          .animate-hide {
+            animation: hide 0.3s ease-in forwards;
+          }
+          @keyframes hide {
+            from {
+              opacity: 1;
+              transform: scale(1);
+            }
+            to {
+              opacity: 0;
+              transform: scale(0.8);
+            }
+          }
         `}
       </style>
-      {/* Fullscreen Background Video Layer */}
-      {isAvatarVisible && videoName && useFullscreenVideo && (
-        <video
-          src={videoName}
-          autoPlay
-          onEnded={() => setVideoName(null)}
-          className="fixed inset-0 z-40 w-full h-full object-cover transition-all duration-700 ease-in-out"
-        />
-      )}
 
-      {/* Popup Video Player (Default) */}
-      {isAvatarVisible && videoName && !useFullscreenVideo && <VideoPopupPlayer videoName={videoName} />}
+      {/* Video Popup Player */}
+      <VideoPopupPlayer videoName={videoName} onClose={handleVideoClose} />
 
       {/* Main Content */}
-      <div className="relative min-h-screen">
-        {/* Avatar Wrapper - Responsive Stage */}
+      <div className="relative h-screen flex flex-col items-center justify-center overflow-hidden">
+        {/* Avatar Wrapper - Centered or Draggable Bottom-Right */}
         <div
+          ref={avatarRef}
+          onMouseDown={handleMouseDown}
           className={cn(
-            "transition-all duration-300 z-50",
+            "transition-all duration-500 z-50 flex justify-center items-center",
             showDottedFace ? "h-0 overflow-hidden" : "h-auto",
             isAvatarVisible && videoName && useFullscreenVideo
-              ? "fixed bottom-4 right-4 w-[400px] h-[400px] bg-black/10 rounded-xl flex items-center justify-center overflow-hidden shadow-xl"
-              : "flex justify-center items-center h-[calc(100vh-150px)] w-full relative"
+              ? "fixed w-[300px] h-[300px] bg-black/20 rounded-xl overflow-hidden shadow-2xl avatar-slide-in cursor-move"
+              : isAvatarVisible
+              ? "w-full max-w-[800px] relative"
+              : "hidden"
           )}
+          style={
+            isAvatarVisible && videoName && useFullscreenVideo
+              ? {
+                  left: `calc(100% - 320px + ${avatarPosition.x}px)`,
+                  top: `calc(100% - 320px + ${avatarPosition.y}px)`,
+                }
+              : {}
+          }
         >
           <div
             className={cn(
@@ -513,26 +616,22 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
           </div>
         </div>
 
-        {/* Close Button for Fullscreen Video */}
-        {isAvatarVisible && videoName && useFullscreenVideo && (
-          <button
-            onClick={() => setVideoName(null)}
-            className="fixed top-4 right-4 text-white bg-black/50 hover:bg-black rounded-full px-3 py-1 text-xl z-50 transition-all duration-300"
-          >
-            ✕
-          </button>
-        )}
-
-        {/* Interaction Buttons */}
-        <div className="flex flex-col items-center z-50 relative">
+        {/* Interaction Buttons and GIF */}
+        <div
+          className={cn(
+            "flex flex-col items-center justify-center z-50 w-full max-w-[800px]",
+            isAvatarVisible ? "animate-hide" : "opacity-100"
+          )}
+        >
           {!isAvatarVisible ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center space-y-8">
-              {/* GIF Animation */}
+            <div className="flex flex-col items-center justify-center space-y-8">
+              {/* GIF Animation - Shown when interaction is not started */}
               <img
                 src="https://faceaqses.s3.us-east-1.amazonaws.com/holoagent/project-images/holoagent1234567.gif"
                 alt="Holoagent Animation"
                 width="350"
                 height="350"
+                className="mx-auto"
               />
               {/* Gradient Button */}
               <button
@@ -551,11 +650,11 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-4 w-full mt-4">
+            <div className="flex items-center justify-center w-full">
               <button
                 onClick={handleStop}
                 className={cn(
-                  "group text-white flex-grow bg-red hover:rounded-sm hover:bg-white h-[52px] px-6 rounded-[100px] transition-all duration-300"
+                  "group text-white bg-red-500 hover:rounded-sm hover:bg-white h-[52px] px-6 rounded-[100px] transition-all duration-300"
                 )}
               >
                 <span className="font-abc-repro-mono group-hover:text-black font-bold w-[164px] transition-all duration-300">
@@ -565,6 +664,13 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
             </div>
           )}
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="text-red-500 text-center mt-4 font-abc-repro-mono absolute bottom-4">
+            {error}
+          </div>
+        )}
       </div>
     </>
   );
