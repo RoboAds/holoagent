@@ -62,7 +62,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
         maxSessionLength: 30600, // in seconds
         maxIdleTime: 30600, // in seconds
         videoRef: videoRef.current,
-        audioRef: videoRef.current,
+        audioRef: audioRef.current,
         enableConsoleLogs: true,
       };
 
@@ -459,6 +459,17 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
         `}
       </style>
       <div className="relative min-h-screen">
+        {showVideoPopup && videoName && (
+          <VideoPopupPlayer
+            videoName={videoName}
+            showPopup={showVideoPopup}
+            onClose={() => {
+              setShowVideoPopup(false);
+              setVideoName(null);
+            }}
+          />
+        )}
+
         <div
           className={cn(
             "transition-all duration-300",
@@ -478,17 +489,6 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
           </div>
         </div>
 
-        {showVideoPopup && videoName && (
-          <VideoPopupPlayer
-            videoName={videoName}
-            showPopup={showVideoPopup}
-            onClose={() => {
-              setShowVideoPopup(false);
-              setVideoName(null);
-            }}
-          />
-        )}
-
         <div className="flex flex-col items-center z-10 relative">
           {!isAvatarVisible ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center space-y-8">
@@ -497,6 +497,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
                 alt="Holoagent Animation"
                 width="350"
                 height="350"
+                className="object-contain"
               />
               <button
                 onClick={handleStart}
@@ -509,9 +510,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
                 {isLoading ? (
                   <IconSparkleLoader className="h-[20px] animate-loader" />
                 ) : (
-                  <span className="font-abc-repro-mono font-bold">
-                    Talk to AI
-                  </span>
+                  <span className="font-abc-repro-mono font-bold">Talk To Agent</span>
                 )}
               </button>
             </div>
@@ -519,10 +518,9 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
             <div className="flex items-center gap-4 w-full mt-4">
               <button
                 onClick={handleStop}
-                className="group text-white flex-grow bg-red hover:rounded-sm hover:bg-white h-[52px] px-6 rounded-[100px] transition-all duration-300 flex items-center justify-center gap-2"
+                className="group text-white flex-grow bg-red hover:rounded-sm hover:bg-white h-[52px] px-6 rounded-[100px] transition-all duration-300"
               >
-                <IconExit className="h-5 w-5 group-hover:text-black" />
-                <span className="font-abc-repro-mono group-hover:text-black font-bold">
+                <span className="font-abc-repro-mono group-hover:text-black font-bold w-[164px] transition-all duration-300">
                   Stop Interaction
                 </span>
               </button>
