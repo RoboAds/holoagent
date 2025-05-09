@@ -13,6 +13,7 @@ interface SimliOpenAIProps {
   openai_model: string;
   initialPrompt: string;
   openai_api_key: string;
+  userId: string; // Added for product queries
   onStart: () => void;
   onClose: () => void;
   showDottedFace: boolean;
@@ -26,6 +27,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
   openai_model,
   initialPrompt,
   openai_api_key,
+  userId,
   onStart,
   onClose,
   showDottedFace,
@@ -36,12 +38,8 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
   const [error, setError] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [userMessage, setUserMessage] = useState("...");
-  const [showPopup, setShowPopup] = useState(false);
   const [videoName, setVideoName] = useState<string | null>(null);
-  const [productDetails, setProductDetails] = useState({
-    name: "Virtual Agent",
-    description: "An AI-powered virtual assistant for seamless interaction.",
-  });
+  const [showPopup, setShowPopup] = useState(false);
 
   // Refs for various components and states
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -85,7 +83,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       console.log("Initializing OpenAI client...");
       openAIClientRef.current = new RealtimeClient({
         model: openai_model,
-        apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
+        apiKey: openai_api_key,
         dangerouslyAllowAPIKeyInBrowser: true,
       });
 
@@ -107,13 +105,11 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
             properties: {
               query: {
                 type: "string",
-                description:
-                  "This is the question about the product that user needs from knowledge base",
+                description: "This is the question about the product that user needs from knowledge base",
               },
               userid: {
                 type: "string",
-                description:
-                  "This the user id that this llm will send to knowledge base llm. Send the current user id",
+                description: "This the user id that this llm will send to knowledge base llm. Send the current user id",
               },
             },
             required: ["query", "userid"],
@@ -129,15 +125,11 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
           });
 
           const json = await result.json();
-          // Update product details state with fetched data (assuming json contains name and description)
-          if (json.name && json.description) {
-            setProductDetails({ name: json.name, description: json.description });
-          }
           return json;
         }
       );
 
-      // Add tool for playing product video
+      // add tool for playing product video
       openAIClientRef.current.addTool(
         {
           name: "play_product_video",
@@ -158,8 +150,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
               },
               userid: {
                 type: "string",
-                description:
-                  "This the user id that this llm will send to knowledge base llm. Send the current user id",
+                description: "This the user id that this llm will send to knowledge base llm. Send the current user id",
               },
             },
             required: ["query", "video_url", "userid"],
@@ -187,25 +178,15 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
           if (video_url) {
             setShowPopup(true);
           }
+
           return json;
         }
       );
 
       // Set up event listeners
-      openAIClientRef.current.on(
-        "conversation.updated",
-        handleConversationUpdate
-      );
-
-      openAIClientRef.current.on(
-        "conversation.interrupted",
-        interruptConversation
-      );
-
-      openAIClientRef.current.on(
-        "input_audio_buffer.speech_stopped",
-        handleSpeechStopped
-      );
+      openAIClientRef.current.on("conversation.updated", handleConversationUpdate);
+      openAIClientRef.current.on("conversation.interrupted", interruptConversation);
+      openAIClientRef.current.on("input_audio_buffer.speech_stopped", handleSpeechStopped);
 
       await openAIClientRef.current.connect().then(() => {
         console.log("OpenAI Client connected successfully");
@@ -218,7 +199,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       console.error("Error initializing OpenAI client:", error);
       setError(`Failed to initialize OpenAI client: ${error.message}`);
     }
-  }, [initialPrompt, openai_model, openai_voice]);
+  }, [initialPrompt, openai_model, openai_api_key, openai_voice, userId]);
 
   /**
    * Handles conversation updates, including user and assistant messages.
@@ -254,10 +235,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
    * Processes the next audio chunk in the queue.
    */
   const processNextAudioChunk = useCallback(() => {
-    if (
-      audioChunkQueueRef.current.length > 0 &&
-      !isProcessingChunkRef.current
-    ) {
+    if (audioChunkQueueRef.current.length > 0 && !isProcessingChunkRef.current) {
       isProcessingChunkRef.current = true;
       const audioChunk = audioChunkQueueRef.current.shift();
       if (audioChunk) {
@@ -391,14 +369,8 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       streamRef.current = await navigator.mediaDevices.getUserMedia({
         audio: true,
       });
-      const source = audioContextRef.current.createMediaStreamSource(
-        streamRef.current
-      );
-      processorRef.current = audioContextRef.current.createScriptProcessor(
-        2048,
-        1,
-        1
-      );
+      const source = audioContextRef.current.createMediaStreamSource(streamRef.current);
+      processorRef.current = audioContextRef.current.createScriptProcessor(2048, 1, 1);
 
       processorRef.current.onaudioprocess = (e) => {
         const inputData = e.inputBuffer.getChannelData(0);
@@ -457,6 +429,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       console.error("Error starting interaction:", error);
       setError(`Error starting interaction: ${error.message}`);
     } finally {
+      setIsAvatarVisible(true);
       setIsLoading(false);
     }
   }, [onStart, initializeSimliClient]);
@@ -511,12 +484,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       >
         <VideoBox video={videoRef} audio={audioRef} />
       </div>
-      {showPopup && videoName && (
-        <VideoPopupPlayer
-          videoName={videoName}
-          onClose={() => setShowPopup(false)}
-        />
-      )}
+      {videoName && showPopup && <VideoPopupPlayer videoName={videoName} />}
       <div className="flex flex-col items-center">
         {!isAvatarVisible ? (
           <button
@@ -532,11 +500,11 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
             ) : (
               <>
                 <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-5 w-5"
+                  className="w-5 h-5"
                   fill="none"
-                  viewBox="0 0 24 24"
                   stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  xmlns="http://www.w3.org/2000/svg"
                 >
                   <path
                     strokeLinecap="round"
@@ -545,36 +513,27 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
                     d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
                   />
                 </svg>
-                <span className="font-abc-repro-mono font-bold w-[164px]">
+                <span className="font-abc-repro-mono font-bold">
                   Talk to Agent
                 </span>
               </>
             )}
           </button>
         ) : (
-          <>
-            <div className="flex items-center gap-4 w-full">
-              <button
-                onClick={handleStop}
-                className={cn(
-                  "mt-4 group text-white flex-grow bg-red hover:rounded-sm hover:bg-white h-[52px] px-6 rounded-[100px] transition-all duration-300"
-                )}
-              >
-                <span className="font-abc-repro-mono group-hover:text-black font-bold w-[164px] transition-all duration-300">
-                  Stop Interaction
-                </span>
-              </button>
-            </div>
-            <div className="mt-4 w-full p-4 bg-gray-800 rounded-lg">
-              <h3 className="text-white font-bold">{productDetails.name}</h3>
-              <p className="text-gray-300">{productDetails.description}</p>
-            </div>
-          </>
+          <div className="flex items-center gap-4 w-full">
+            <button
+              onClick={handleStop}
+              className={cn(
+                "mt-4 group text-white flex-grow bg-red hover:rounded-sm hover:bg-white h-[52px] px-6 rounded-[100px] transition-all duration-300"
+              )}
+            >
+              <span className="font-abc-repro-mono group-hover:text-black font-bold w-[164px] transition-all duration-300">
+                Stop Interaction
+              </span>
+            </button>
+          </div>
         )}
       </div>
-      {error && (
-        <div className="mt-4 text-red-500 text-center">{error}</div>
-      )}
     </>
   );
 };
