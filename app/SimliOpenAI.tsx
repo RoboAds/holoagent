@@ -4,7 +4,6 @@ import { SimliClient } from "simli-client";
 import VideoBox from "./Components/VideoBox";
 import cn from "./utils/TailwindMergeAndClsx";
 import IconSparkleLoader from "@/media/IconSparkleLoader";
-import IconExit from "@/media/IconExit";
 import VideoPopupPlayer from "./Components/video-player";
 
 interface SimliOpenAIProps {
@@ -159,7 +158,6 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
           });
 
           const json = await result.json();
-          // Extract videoName from video_url (remove path and .mp4 extension)
           const videoNameExtracted = video_url.split("/").pop()?.replace(".mp4", "") || "";
           setVideoName(videoNameExtracted);
           setShowVideoPopup(true);
@@ -445,59 +443,90 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
 
   return (
     <>
-      <div
-        className={cn(
-          "transition-all duration-300",
-          showDottedFace ? "h-0 overflow-hidden" : "h-auto",
-          showVideoPopup && videoName
-            ? "fixed bottom-4 right-4 w-[400px] h-[400px] bg-black/10 rounded-xl flex items-center justify-center overflow-hidden shadow-xl z-50"
-            : "flex justify-center items-center h-[calc(100vh-150px)] w-full relative"
-        )}
-      >
+      <style>
+        {`
+          .gradient-button {
+            background: linear-gradient(45deg, #3b82f6, #8b5cf6, #ec4899, #3b82f6);
+            background-size: 200% 200%;
+            animation: gradientAnimation 8s ease infinite;
+          }
+          @keyframes gradientAnimation {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+        `}
+      </style>
+      <div className="relative min-h-screen">
         <div
           className={cn(
-            "transition-transform duration-700 ease-in-out",
-            showVideoPopup && videoName ? "scale-75 origin-center" : "scale-100"
+            "transition-all duration-300",
+            showDottedFace ? "h-0 overflow-hidden" : "h-auto",
+            showVideoPopup && videoName
+              ? "fixed bottom-4 right-4 w-[400px] h-[400px] bg-black/10 rounded-xl flex items-center justify-center overflow-hidden shadow-xl z-50"
+              : "flex justify-center items-center h-[calc(100vh-150px)] w-full relative"
           )}
         >
-          <VideoBox video={videoRef} audio={audioRef} />
-        </div>
-      </div>
-
-      {showVideoPopup && videoName && (
-        <VideoPopupPlayer videoName={videoName} />
-      )}
-
-      <div className="flex flex-col items-center z-10 relative">
-        {!isAvatarVisible ? (
-          <button
-            onClick={handleStart}
-            disabled={isLoading}
+          <div
             className={cn(
-              "w-full h-[52px] mt-4 disabled:bg-[#343434] disabled:text-white disabled:hover:rounded-[100px] bg-simliblue text-white py-3 px-6 rounded-[100px] transition-all duration-300 hover:text-black hover:bg-white hover:rounded-sm",
-              "flex justify-center items-center"
+              "transition-transform duration-700 ease-in-out",
+              showVideoPopup && videoName ? "scale-75 origin-center" : "scale-100"
             )}
           >
-            {isLoading ? (
-              <IconSparkleLoader className="h-[20px] animate-loader" />
-            ) : (
-              <span className="font-abc-repro-mono font-bold w-[164px]">
-                Test Interaction
-              </span>
-            )}
-          </button>
-        ) : (
-          <div className="flex items-center gap-4 w-full mt-4">
-            <button
-              onClick={handleStop}
-              className="group text-white flex-grow bg-red hover:rounded-sm hover:bg-white h-[52px] px-6 rounded-[100px] transition-all duration-300"
-            >
-              <span className="font-abc-repro-mono group-hover:text-black font-bold w-[164px] transition-all duration-300">
-                Stop Interaction
-              </span>
-            </button>
+            <VideoBox video={videoRef} audio={audioRef} />
           </div>
+        </div>
+
+        {showVideoPopup && videoName && (
+          <VideoPopupPlayer
+            videoName={videoName}
+            showPopup={showVideoPopup}
+            onClose={() => {
+              setShowVideoPopup(false);
+              setVideoName(null);
+            }}
+          />
         )}
+
+        <div className="flex flex-col items-center z-10 relative">
+          {!isAvatarVisible ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center space-y-8">
+              <img
+                src="https://faceaqses.s3.us-east-1.amazonaws.com/holoagent/project-images/holoagent1234567.gif"
+                alt="Holoagent Animation"
+                width="350"
+                height="350"
+              />
+              <button
+                onClick={handleStart}
+                disabled={isLoading}
+                className={cn(
+                  "gradient-button inline-flex text-white px-6 py-3 rounded-[100px] transition-all duration-300 hover:rounded-sm hover:shadow-lg hover:scale-105 items-center justify-center",
+                  isLoading ? "opacity-50 cursor-not-allowed" : ""
+                )}
+              >
+                {isLoading ? (
+                  <IconSparkleLoader className="h-[20px] animate-loader" />
+                ) : (
+                  <span className="font-abc-repro-mono font-bold">
+                    Talk to AI
+                  </span>
+                )}
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-4 w-full mt-4">
+              <button
+                onClick={handleStop}
+                className="group text-white flex-grow bg-red hover:rounded-sm hover:bg-white h-[52px] px-6 rounded-[100px] transition-all duration-300"
+              >
+                <span className="font-abc-repro-mono group-hover:text-black font-bold w-[164px] transition-all duration-300">
+                  Stop Interaction
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </>
   );
