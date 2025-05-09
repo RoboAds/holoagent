@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { RealtimeClient } from "@openai/realtime-api-beta";
 import { SimliClient } from "simli-client";
 import VideoBox from "./Components/VideoBox";
 import cn from "./utils/TailwindMergeAndClsx";
-import IconExit from "@/media/IconExit";
 import IconSparkleLoader from "@/media/IconSparkleLoader";
+import IconExit from "@/media/IconExit";
+import VideoPopupPlayer from "./Components/video-player";
 
 interface SimliOpenAIProps {
   simli_faceid: string;
@@ -35,6 +36,8 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
   const [error, setError] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [userMessage, setUserMessage] = useState("...");
+  const [showVideoPopup, setShowVideoPopup] = useState(false);
+  const [videoName, setVideoName] = useState<string | null>(null);
 
   // Refs for various components and states
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -87,7 +90,83 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
         input_audio_transcription: { model: "whisper-1" },
       });
 
-      // Set up event listeners
+      openAIClientRef.current.addTool(
+        {
+          name: "get_product_details",
+          description:
+            "retrieves product details from knowledge base about the product like price, features, and description",
+          parameters: {
+            type: "object",
+            properties: {
+              query: {
+                type: "string",
+                description: "This is the question about the product that user needs from knowledge base",
+              },
+              userid: {
+                type: "string",
+                description: "This the user id that this llm will send to knowledge base llm. Send the current user id",
+              },
+            },
+            required: ["query", "userid"],
+          },
+        },
+        async ({ query, userid }: { query: string; userid: string }) => {
+          const result = await fetch("https://app.holoagent.ai/query", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ query, userid }),
+          });
+
+          const json = await result.json();
+          return json;
+        }
+      );
+
+      openAIClientRef.current.addTool(
+        {
+          name: "play_product_video",
+          description:
+            "plays the video of the product that user needs from the memory. IF the video is not in memory, it will call the knowledge base to fetch the video. If the video link is not available, or if it looks invalid, it will call the knowledge base to fetch the video",
+          parameters: {
+            type: "object",
+            properties: {
+              query: {
+                type: "string",
+                description: "This is the video about the product that user needs from knowledge base. This is the request that this llm will send to knowledge base llm",
+              },
+              video_url: {
+                type: "string",
+                description:
+                  "This is the video url that user needs to play from knowledge base. IF the video is not in memory, it will call the knowledge base with query to fetch the video and play it. This is just the video URL without any other text. Ends with .mp4",
+              },
+              userid: {
+                type: "string",
+                description: "This the user id that this llm will send to knowledge base llm. Send the current user id",
+              },
+            },
+            required: ["query", "video_url", "userid"],
+          },
+        },
+        async ({ query, video_url, userid }: { query: string; video_url: string; userid: string }) => {
+          const result = await fetch("https://app.holoagent.ai/video", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ query, userid }),
+          });
+
+          const json = await result.json();
+          // Extract videoName from video_url (remove path and .mp4 extension)
+          const videoNameExtracted = video_url.split("/").pop()?.replace(".mp4", "") || "";
+          setVideoName(videoNameExtracted);
+          setShowVideoPopup(true);
+          return json;
+        }
+      );
+
       openAIClientRef.current.on("conversation.updated", handleConversationUpdate);
       openAIClientRef.current.on("conversation.interrupted", interruptConversation);
       openAIClientRef.current.on("input_audio_buffer.speech_stopped", handleSpeechStopped);
@@ -103,7 +182,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       console.error("Error initializing OpenAI client:", error);
       setError(`Failed to initialize OpenAI client: ${error.message}`);
     }
-  }, [initialPrompt]);
+  }, [initialPrompt, openai_model, openai_api_key, openai_voice]);
 
   /**
    * Handles conversation updates, including user and assistant messages.
@@ -143,9 +222,8 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       isProcessingChunkRef.current = true;
       const audioChunk = audioChunkQueueRef.current.shift();
       if (audioChunk) {
-        const chunkDurationMs = (audioChunk.length / 16000) * 1000; // Calculate chunk duration in milliseconds
+        const chunkDurationMs = (audioChunk.length / 16000) * 1000;
 
-        // Send audio chunks to Simli immediately
         simliClient?.sendAudioData(audioChunk as any);
         console.log(
           "Sent audio chunk to Simli:",
@@ -175,13 +253,11 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
     cutoffFreq: number,
     sampleRate: number
   ): Int16Array => {
-    // Simple FIR filter coefficients
-    const numberOfTaps = 31; // Should be odd
+    const numberOfTaps = 31;
     const coefficients = new Float32Array(numberOfTaps);
     const fc = cutoffFreq / sampleRate;
     const middle = (numberOfTaps - 1) / 2;
 
-    // Generate windowed sinc filter
     for (let i = 0; i < numberOfTaps; i++) {
       if (i === middle) {
         coefficients[i] = 2 * Math.PI * fc;
@@ -189,15 +265,12 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
         const x = 2 * Math.PI * fc * (i - middle);
         coefficients[i] = Math.sin(x) / (i - middle);
       }
-      // Apply Hamming window
       coefficients[i] *= 0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (numberOfTaps - 1));
     }
 
-    // Normalize coefficients
     const sum = coefficients.reduce((acc, val) => acc + val, 0);
     coefficients.forEach((_, i) => (coefficients[i] /= sum));
 
-    // Apply filter
     const result = new Int16Array(data.length);
     for (let i = 0; i < data.length; i++) {
       let sum = 0;
@@ -216,11 +289,6 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
   /**
    * Downsamples audio data from one sample rate to another using linear interpolation
    * and anti-aliasing filter.
-   *
-   * @param audioData - Input audio data as Int16Array
-   * @param inputSampleRate - Original sampling rate in Hz
-   * @param outputSampleRate - Target sampling rate in Hz
-   * @returns Downsampled audio data as Int16Array
    */
   const downsampleAudio = (
     audioData: Int16Array,
@@ -235,15 +303,11 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       throw new Error("Upsampling is not supported");
     }
 
-    // Apply low-pass filter to prevent aliasing
-    // Cut off at slightly less than the Nyquist frequency of the target sample rate
     const filteredData = applyLowPassFilter(audioData, outputSampleRate * 0.45, inputSampleRate);
-
     const ratio = inputSampleRate / outputSampleRate;
     const newLength = Math.floor(audioData.length / ratio);
     const result = new Int16Array(newLength);
 
-    // Linear interpolation
     for (let i = 0; i < newLength; i++) {
       const position = i * ratio;
       const index = Math.floor(position);
@@ -271,9 +335,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
 
     try {
       console.log("Starting audio recording...");
-      streamRef.current = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
+      streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
       const source = audioContextRef.current.createMediaStreamSource(streamRef.current);
       processorRef.current = audioContextRef.current.createScriptProcessor(2048, 1, 1);
 
@@ -348,6 +410,8 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
     setError("");
     stopRecording();
     setIsAvatarVisible(false);
+    setVideoName(null);
+    setShowVideoPopup(false);
     simliClient?.close();
     openAIClientRef.current?.disconnect();
     if (audioContextRef.current) {
@@ -357,7 +421,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
     stopRecording();
     onClose();
     console.log("Interaction stopped");
-  }, [stopRecording]);
+  }, [stopRecording, onClose]);
 
   /**
    * Simli Event listeners
@@ -366,7 +430,6 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
     if (simliClient) {
       simliClient?.on("connected", () => {
         console.log("SimliClient connected");
-        // Initialize OpenAI client
         initializeOpenAIClient();
       });
 
@@ -378,76 +441,63 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
         }
       });
     }
-  }, []);
+  }, [initializeOpenAIClient]);
 
   return (
     <>
-      <style>
-        {`
-          .gradient-button {
-            background: linear-gradient(45deg, #3b82f6, #8b5cf6, #ec4899, #3b82f6);
-            background-size: 200% 200%;
-            animation: gradientAnimation 8s ease infinite;
-          }
-          @keyframes gradientAnimation {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-          }
-        `}
-      </style>
-      <div className="relative min-h-screen">
+      <div
+        className={cn(
+          "transition-all duration-300",
+          showDottedFace ? "h-0 overflow-hidden" : "h-auto",
+          showVideoPopup && videoName
+            ? "fixed bottom-4 right-4 w-[400px] h-[400px] bg-black/10 rounded-xl flex items-center justify-center overflow-hidden shadow-xl z-50"
+            : "flex justify-center items-center h-[calc(100vh-150px)] w-full relative"
+        )}
+      >
         <div
           className={cn(
-            "transition-all duration-300",
-            showDottedFace ? "h-0 overflow-hidden" : "h-auto"
+            "transition-transform duration-700 ease-in-out",
+            showVideoPopup && videoName ? "scale-75 origin-center" : "scale-100"
           )}
         >
           <VideoBox video={videoRef} audio={audioRef} />
         </div>
-        <div className="flex flex-col items-center">
-          {!isAvatarVisible ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center space-y-8">
-              {/* GIF Animation */}
-              <img
-                src="https://faceaqses.s3.us-east-1.amazonaws.com/holoagent/project-images/holoagent1234567.gif"
-                alt="Holoagent Animation"
-                width="350"
-                height="350"
-              />
-              {/* Gradient Button */}
-              <button
-                onClick={handleStart}
-                disabled={isLoading}
-                className={cn(
-                  "gradient-button inline-flex text-white px-6 py-3 rounded-[100px] transition-all duration-300 hover:rounded-sm hover:shadow-lg hover:scale-105 items-center justify-center",
-                  isLoading ? "opacity-50 cursor-not-allowed" : ""
-                )}
-              >
-                {isLoading ? (
-                  <IconSparkleLoader className="h-[20px] animate-loader" />
-                ) : (
-                  <span className="font-abc-repro-mono font-bold">
-                    Talk To Agent
-                  </span>
-                )}
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-4 w-full">
-              <button
-                onClick={handleStop}
-                className={cn(
-                  "mt-4 group text-white flex-grow bg-red hover:rounded-sm hover:bg-white h-[52px] px-6 rounded-[100px] transition-all duration-300"
-                )}
-              >
-                <span className="font-abc-repro-mono group-hover:text-black font-bold w-[164px] transition-all duration-300">
-                  Stop Interaction
-                </span>
-              </button>
-            </div>
-          )}
-        </div>
+      </div>
+
+      {showVideoPopup && videoName && (
+        <VideoPopupPlayer videoName={videoName} />
+      )}
+
+      <div className="flex flex-col items-center z-10 relative">
+        {!isAvatarVisible ? (
+          <button
+            onClick={handleStart}
+            disabled={isLoading}
+            className={cn(
+              "w-full h-[52px] mt-4 disabled:bg-[#343434] disabled:text-white disabled:hover:rounded-[100px] bg-simliblue text-white py-3 px-6 rounded-[100px] transition-all duration-300 hover:text-black hover:bg-white hover:rounded-sm",
+              "flex justify-center items-center"
+            )}
+          >
+            {isLoading ? (
+              <IconSparkleLoader className="h-[20px] animate-loader" />
+            ) : (
+              <span className="font-abc-repro-mono font-bold w-[164px]">
+                Test Interaction
+              </span>
+            )}
+          </button>
+        ) : (
+          <div className="flex items-center gap-4 w-full mt-4">
+            <button
+              onClick={handleStop}
+              className="group text-white flex-grow bg-red hover:rounded-sm hover:bg-white h-[52px] px-6 rounded-[100px] transition-all duration-300"
+            >
+              <span className="font-abc-repro-mono group-hover:text-black font-bold w-[164px] transition-all duration-300">
+                Stop Interaction
+              </span>
+            </button>
+          </div>
+        )}
       </div>
     </>
   );
