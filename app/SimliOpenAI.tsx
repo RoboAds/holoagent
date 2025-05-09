@@ -513,8 +513,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       </div>
       {showPopup && videoName && (
         <VideoPopupPlayer
-          videoRef={videoRef}
-          videoUrl={videoName}
+          videoName={videoName}
           onClose={() => setShowPopup(false)}
         />
       )}
