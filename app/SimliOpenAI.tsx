@@ -12,6 +12,7 @@ interface SimliOpenAIProps {
   openai_voice: "alloy" | "ash" | "ballad" | "coral" | "echo" | "sage" | "shimmer" | "verse";
   openai_model: string;
   initialPrompt: string;
+  openai_api_key: string;
   userId: string;
   onStart: () => void;
   onClose: () => void;
@@ -25,6 +26,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
   openai_voice,
   openai_model,
   initialPrompt,
+  openai_api_key,
   userId,
   onStart,
   onClose,
@@ -37,7 +39,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
   const [isRecording, setIsRecording] = useState(false);
   const [userMessage, setUserMessage] = useState("...");
   const [videoName, setVideoName] = useState<string | null>(null);
-  const [usePopupPlayer, setUsePopupPlayer] = useState(false); // Toggle for popup player
+  const [useFullscreenVideo, setUseFullscreenVideo] = useState(false); // Toggle for fullscreen vs popup video
 
   // Refs for various components and states
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -46,8 +48,6 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
   const audioContextRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
-
-  // Refs for managing audio chunk delay
   const audioChunkQueueRef = useRef<Int16Array[]>([]);
   const isProcessingChunkRef = useRef(false);
 
@@ -80,7 +80,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       console.log("Initializing OpenAI client...");
       openAIClientRef.current = new RealtimeClient({
         model: openai_model,
-        apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
+        apiKey: openai_api_key,
         dangerouslyAllowAPIKeyInBrowser: true,
       });
 
@@ -200,7 +200,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       console.error("Error initializing OpenAI client:", error);
       setError(`Failed to initialize OpenAI client: ${error.message}`);
     }
-  }, [initialPrompt, openai_model, openai_voice]);
+  }, [initialPrompt, openai_model, openai_voice, openai_api_key]);
 
   /**
    * Handles conversation updates, including user and assistant messages.
@@ -464,8 +464,22 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
 
   return (
     <>
+      <style>
+        {`
+          .gradient-button {
+            background: linear-gradient(45deg, #3b82f6, #8b5cf6, #ec4899, #3b82f6);
+            background-size: 200% 200%;
+            animation: gradientAnimation 8s ease infinite;
+          }
+          @keyframes gradientAnimation {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+        `}
+      </style>
       {/* Fullscreen Background Video Layer */}
-      {isAvatarVisible && videoName && !usePopupPlayer && (
+      {isAvatarVisible && videoName && useFullscreenVideo && (
         <video
           src={videoName}
           autoPlay
@@ -474,86 +488,83 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
         />
       )}
 
-      {/* Popup Video Player (Fallback) */}
-      {isAvatarVisible && videoName && usePopupPlayer && <VideoPopupPlayer videoName={videoName} />}
+      {/* Popup Video Player (Default) */}
+      {isAvatarVisible && videoName && !useFullscreenVideo && <VideoPopupPlayer videoName={videoName} />}
 
-      {/* Avatar Wrapper - Responsive Stage */}
-      <div
-        className={cn(
-          "transition-all duration-700 ease-in-out z-50",
-          showDottedFace ? "h-0 overflow-hidden" : "h-auto",
-          isAvatarVisible && videoName && !usePopupPlayer
-            ? "fixed bottom-4 right-4 w-[400px] h-[400px] bg-black/10 rounded-xl flex items-center justify-center overflow-hidden shadow-xl"
-            : "flex justify-center items-center h-[calc(100vh-150px)] w-full relative"
-        )}
-      >
+      {/* Main Content */}
+      <div className="relative min-h-screen">
+        {/* Avatar Wrapper - Responsive Stage */}
         <div
           className={cn(
-            "transition-transform duration-700 ease-in-out",
-            isAvatarVisible && videoName && !usePopupPlayer ? "scale-75 origin-center" : "scale-100"
+            "transition-all duration-300 z-50",
+            showDottedFace ? "h-0 overflow-hidden" : "h-auto",
+            isAvatarVisible && videoName && useFullscreenVideo
+              ? "fixed bottom-4 right-4 w-[400px] h-[400px] bg-black/10 rounded-xl flex items-center justify-center overflow-hidden shadow-xl"
+              : "flex justify-center items-center h-[calc(100vh-150px)] w-full relative"
           )}
         >
-          <VideoBox video={videoRef} audio={audioRef} />
-        </div>
-      </div>
-
-      {/* Close Button for Video */}
-      {isAvatarVisible && videoName && !usePopupPlayer && (
-        <button
-          onClick={() => setVideoName(null)}
-          className="fixed top-4 right-4 text-white bg-black/50 hover:bg-black rounded-full px-3 py-1 text-xl z-50 transition-all duration-300"
-        >
-          ✕
-        </button>
-      )}
-
-      {/* Interaction Buttons */}
-      <div className="flex flex-col items-center z-50 relative">
-        {!isAvatarVisible ? (
-          <button
-            onClick={handleStart}
-            disabled={isLoading}
+          <div
             className={cn(
-              "w-full h-[52px] mt-4 disabled:bg-[#343434] disabled:text-white disabled:hover:rounded-[100px] bg-simliblue text-white py-3 px-6 rounded-[100px] transition-all duration-300 hover:text-black hover:bg-white hover:rounded-sm",
-              "flex justify-center items-center gap-2"
+              "transition-transform duration-700 ease-in-out",
+              isAvatarVisible && videoName && useFullscreenVideo ? "scale-75 origin-center" : "scale-100"
             )}
           >
-            {isLoading ? (
-              <IconSparkleLoader className="h-[20px] animate-loader" />
-            ) : (
-              <>
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
-                  />
-                </svg>
-                <span className="font-abc-repro-mono font-bold">Talk to Agent</span>
-              </>
-            )}
-          </button>
-        ) : (
-          <div className="flex items-center gap-4 w-full mt-4">
-            <button
-              onClick={handleStop}
-              className={cn(
-                "group text-white flex-grow bg-red hover:rounded-sm hover:bg-white h-[52px] px-6 rounded-[100px] transition-all duration-300"
-              )}
-            >
-              <span className="font-abc-repro-mono group-hover:text-black font-bold w-[164px] transition-all duration-300">
-                Stop Interaction
-              </span>
-            </button>
+            <VideoBox video={videoRef} audio={audioRef} />
           </div>
+        </div>
+
+        {/* Close Button for Fullscreen Video */}
+        {isAvatarVisible && videoName && useFullscreenVideo && (
+          <button
+            onClick={() => setVideoName(null)}
+            className="fixed top-4 right-4 text-white bg-black/50 hover:bg-black rounded-full px-3 py-1 text-xl z-50 transition-all duration-300"
+          >
+            ✕
+          </button>
         )}
+
+        {/* Interaction Buttons */}
+        <div className="flex flex-col items-center z-50 relative">
+          {!isAvatarVisible ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center space-y-8">
+              {/* GIF Animation */}
+              <img
+                src="https://faceaqses.s3.us-east-1.amazonaws.com/holoagent/project-images/holoagent1234567.gif"
+                alt="Holoagent Animation"
+                width="350"
+                height="350"
+              />
+              {/* Gradient Button */}
+              <button
+                onClick={handleStart}
+                disabled={isLoading}
+                className={cn(
+                  "gradient-button inline-flex text-white px-6 py-3 rounded-[100px] transition-all duration-300 hover:rounded-sm hover:shadow-lg hover:scale-105 items-center justify-center",
+                  isLoading ? "opacity-50 cursor-not-allowed" : ""
+                )}
+              >
+                {isLoading ? (
+                  <IconSparkleLoader className="h-[20px] animate-loader" />
+                ) : (
+                  <span className="font-abc-repro-mono font-bold">Talk To Agent</span>
+                )}
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-4 w-full mt-4">
+              <button
+                onClick={handleStop}
+                className={cn(
+                  "group text-white flex-grow bg-red hover:rounded-sm hover:bg-white h-[52px] px-6 rounded-[100px] transition-all duration-300"
+                )}
+              >
+                <span className="font-abc-repro-mono group-hover:text-black font-bold w-[164px] transition-all duration-300">
+                  Stop Interaction
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </>
   );
