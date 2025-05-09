@@ -4,6 +4,7 @@ import { SimliClient } from "simli-client";
 import VideoBox from "./Components/VideoBox";
 import cn from "./utils/TailwindMergeAndClsx";
 import IconSparkleLoader from "@/media/IconSparkleLoader";
+import IconExit from "@/media/IconExit";
 import VideoPopupPlayer from "./Components/video-player";
 
 interface SimliOpenAIProps {
@@ -61,7 +62,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
         maxSessionLength: 30600, // in seconds
         maxIdleTime: 30600, // in seconds
         videoRef: videoRef.current,
-        audioRef: audioRef.current,
+        audioRef: videoRef.current,
         enableConsoleLogs: true,
       };
 
@@ -518,9 +519,10 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
             <div className="flex items-center gap-4 w-full mt-4">
               <button
                 onClick={handleStop}
-                className="group text-white flex-grow bg-red hover:rounded-sm hover:bg-white h-[52px] px-6 rounded-[100px] transition-all duration-300"
+                className="group text-white flex-grow bg-red hover:rounded-sm hover:bg-white h-[52px] px-6 rounded-[100px] transition-all duration-300 flex items-center justify-center gap-2"
               >
-                <span className="font-abc-repro-mono group-hover:text-black font-bold w-[164px] transition-all duration-300">
+                <IconExit className="h-5 w-5 group-hover:text-black" />
+                <span className="font-abc-repro-mono group-hover:text-black font-bold">
                   Stop Interaction
                 </span>
               </button>
