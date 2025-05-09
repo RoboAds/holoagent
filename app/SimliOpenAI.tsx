@@ -12,8 +12,7 @@ interface SimliOpenAIProps {
   openai_voice: "alloy" | "ash" | "ballad" | "coral" | "echo" | "sage" | "shimmer" | "verse";
   openai_model: string;
   initialPrompt: string;
-  openai_api_key: string;
-  userId: string; // Added for product queries
+  userId: string;
   onStart: () => void;
   onClose: () => void;
   showDottedFace: boolean;
@@ -26,7 +25,6 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
   openai_voice,
   openai_model,
   initialPrompt,
-  openai_api_key,
   userId,
   onStart,
   onClose,
@@ -39,7 +37,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
   const [isRecording, setIsRecording] = useState(false);
   const [userMessage, setUserMessage] = useState("...");
   const [videoName, setVideoName] = useState<string | null>(null);
-  const [showPopup, setShowPopup] = useState(false);
+  const [usePopupPlayer, setUsePopupPlayer] = useState(false); // Toggle for popup player
 
   // Refs for various components and states
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -48,9 +46,8 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
   const audioContextRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
-  const isFirstRun = useRef(true);
 
-  // New refs for managing audio chunk delay
+  // Refs for managing audio chunk delay
   const audioChunkQueueRef = useRef<Int16Array[]>([]);
   const isProcessingChunkRef = useRef(false);
 
@@ -83,7 +80,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       console.log("Initializing OpenAI client...");
       openAIClientRef.current = new RealtimeClient({
         model: openai_model,
-        apiKey: openai_api_key,
+        apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
         dangerouslyAllowAPIKeyInBrowser: true,
       });
 
@@ -116,25 +113,29 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
           },
         },
         async ({ query, userid }: { query: string; userid: string }) => {
-          const result = await fetch("https://app.holoagent.ai/query", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ query, userid }),
-          });
-
-          const json = await result.json();
-          return json;
+          try {
+            const result = await fetch("https://app.holoagent.ai/query", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ query, userid }),
+            });
+            if (!result.ok) throw new Error("Failed to fetch product details");
+            return await result.json();
+          } catch (err) {
+            console.error("Error fetching product details:", err);
+            return { error: "Failed to retrieve product details" };
+          }
         }
       );
 
-      // add tool for playing product video
+      // Add tool for playing product video
       openAIClientRef.current.addTool(
         {
           name: "play_product_video",
           description:
-            "plays the video of the product that user needs from the memory. IF the video is not in memory, it will call the knowledge base to fetch the video. If the video link is not available, or if it looks invalid, it will call the knowledge base to fetch the video",
+            "plays the video of the product that user needs from the memory. If the video is not in memory, it will call the knowledge base to fetch the video. If the video link is not available, or if it looks invalid, it will call the knowledge base to fetch the video",
           parameters: {
             type: "object",
             properties: {
@@ -146,7 +147,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
               video_url: {
                 type: "string",
                 description:
-                  "This is the video url that user needs to play from knowledge base. IF the video is not in memory, it will call the knowledge base with query to fetch the video and play it. This is just the video URL without any other text. Ends with .mp4",
+                  "This is the video url that user needs to play from knowledge base. If the video is not in memory, it will call the knowledge base with query to fetch the video and play it. This is just the video URL without any other text. Ends with .mp4",
               },
               userid: {
                 type: "string",
@@ -165,21 +166,22 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
           video_url: string;
           userid: string;
         }) => {
-          const result = await fetch("https://app.holoagent.ai/video", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ query, userid }),
-          });
-
-          const json = await result.json();
-          setVideoName(video_url);
-          if (video_url) {
-            setShowPopup(true);
+          try {
+            const result = await fetch("https://app.holoagent.ai/video", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ query, userid }),
+            });
+            if (!result.ok) throw new Error("Failed to fetch video");
+            const json = await result.json();
+            if (video_url) setVideoName(video_url);
+            return json;
+          } catch (err) {
+            console.error("Error fetching video:", err);
+            return { error: "Failed to retrieve video" };
           }
-
-          return json;
         }
       );
 
@@ -188,18 +190,17 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       openAIClientRef.current.on("conversation.interrupted", interruptConversation);
       openAIClientRef.current.on("input_audio_buffer.speech_stopped", handleSpeechStopped);
 
-      await openAIClientRef.current.connect().then(() => {
-        console.log("OpenAI Client connected successfully");
-        openAIClientRef.current?.createResponse();
-        startRecording();
-      });
+      await openAIClientRef.current.connect();
+      console.log("OpenAI Client connected successfully");
+      openAIClientRef.current?.createResponse();
+      startRecording();
 
       setIsAvatarVisible(true);
     } catch (error: any) {
       console.error("Error initializing OpenAI client:", error);
       setError(`Failed to initialize OpenAI client: ${error.message}`);
     }
-  }, [initialPrompt, openai_model, openai_api_key, openai_voice, userId]);
+  }, [initialPrompt, openai_model, openai_voice]);
 
   /**
    * Handles conversation updates, including user and assistant messages.
@@ -218,7 +219,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
         }
       }
     } else if (item.type === "message" && item.role === "user") {
-      setUserMessage(item.content[0].transcript);
+      setUserMessage(item.content[0].transcript || "...");
     }
   }, []);
 
@@ -239,14 +240,10 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       isProcessingChunkRef.current = true;
       const audioChunk = audioChunkQueueRef.current.shift();
       if (audioChunk) {
-        const chunkDurationMs = (audioChunk.length / 16000) * 1000; // Calculate chunk duration in milliseconds
-
-        // Send audio chunks to Simli immediately
+        const chunkDurationMs = (audioChunk.length / 16000) * 1000;
         simliClient?.sendAudioData(audioChunk as any);
         console.log(
-          "Sent audio chunk to Simli:",
-          chunkDurationMs,
-          "Duration:",
+          "Sent audio chunk to Simli: Duration:",
           chunkDurationMs.toFixed(2),
           "ms"
         );
@@ -271,13 +268,11 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
     cutoffFreq: number,
     sampleRate: number
   ): Int16Array => {
-    // Simple FIR filter coefficients
-    const numberOfTaps = 31; // Should be odd
+    const numberOfTaps = 31;
     const coefficients = new Float32Array(numberOfTaps);
     const fc = cutoffFreq / sampleRate;
     const middle = (numberOfTaps - 1) / 2;
 
-    // Generate windowed sinc filter
     for (let i = 0; i < numberOfTaps; i++) {
       if (i === middle) {
         coefficients[i] = 2 * Math.PI * fc;
@@ -285,16 +280,13 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
         const x = 2 * Math.PI * fc * (i - middle);
         coefficients[i] = Math.sin(x) / (i - middle);
       }
-      // Apply Hamming window
       coefficients[i] *=
         0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (numberOfTaps - 1));
     }
 
-    // Normalize coefficients
     const sum = coefficients.reduce((acc, val) => acc + val, 0);
     coefficients.forEach((_, i) => (coefficients[i] /= sum));
 
-    // Apply filter
     const result = new Int16Array(data.length);
     for (let i = 0; i < data.length; i++) {
       let sum = 0;
@@ -327,10 +319,9 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       throw new Error("Upsampling is not supported");
     }
 
-    // Apply low-pass filter to prevent aliasing
     const filteredData = applyLowPassFilter(
       audioData,
-      outputSampleRate * 0.45, // Slight margin below Nyquist frequency
+      outputSampleRate * 0.45,
       inputSampleRate
     );
 
@@ -338,7 +329,6 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
     const newLength = Math.floor(audioData.length / ratio);
     const result = new Int16Array(newLength);
 
-    // Linear interpolation
     for (let i = 0; i < newLength; i++) {
       const position = i * ratio;
       const index = Math.floor(position);
@@ -375,12 +365,10 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       processorRef.current.onaudioprocess = (e) => {
         const inputData = e.inputBuffer.getChannelData(0);
         const audioData = new Int16Array(inputData.length);
-        let sum = 0;
 
         for (let i = 0; i < inputData.length; i++) {
           const sample = Math.max(-1, Math.min(1, inputData[i]));
           audioData[i] = Math.floor(sample * 32767);
-          sum += Math.abs(sample);
         }
 
         openAIClientRef.current?.appendInputAudio(audioData);
@@ -429,7 +417,6 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       console.error("Error starting interaction:", error);
       setError(`Error starting interaction: ${error.message}`);
     } finally {
-      setIsAvatarVisible(true);
       setIsLoading(false);
     }
   }, [onStart, initializeSimliClient]);
@@ -443,12 +430,11 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
     setError("");
     stopRecording();
     setIsAvatarVisible(false);
-    setShowPopup(false);
     setVideoName(null);
     simliClient?.close();
     openAIClientRef.current?.disconnect();
     if (audioContextRef.current) {
-      audioContextRef.current?.close();
+      audioContextRef.current.close();
       audioContextRef.current = null;
     }
     onClose();
@@ -460,16 +446,17 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
    */
   const eventListenerSimli = useCallback(() => {
     if (simliClient) {
-      simliClient?.on("connected", () => {
+      simliClient.on("connected", () => {
         console.log("SimliClient connected");
         initializeOpenAIClient();
       });
 
-      simliClient?.on("disconnected", () => {
+      simliClient.on("disconnected", () => {
         console.log("SimliClient disconnected");
         openAIClientRef.current?.disconnect();
         if (audioContextRef.current) {
-          audioContextRef.current?.close();
+          audioContextRef.current.close();
+          audioContextRef.current = null;
         }
       });
     }
@@ -477,15 +464,51 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
 
   return (
     <>
+      {/* Fullscreen Background Video Layer */}
+      {isAvatarVisible && videoName && !usePopupPlayer && (
+        <video
+          src={videoName}
+          autoPlay
+          onEnded={() => setVideoName(null)}
+          className="fixed inset-0 z-40 w-full h-full object-cover transition-all duration-700 ease-in-out"
+        />
+      )}
+
+      {/* Popup Video Player (Fallback) */}
+      {isAvatarVisible && videoName && usePopupPlayer && <VideoPopupPlayer videoName={videoName} />}
+
+      {/* Avatar Wrapper - Responsive Stage */}
       <div
-        className={`transition-all duration-300 ${
-          showDottedFace ? "h-0 overflow-hidden" : "h-auto"
-        }`}
+        className={cn(
+          "transition-all duration-700 ease-in-out z-50",
+          showDottedFace ? "h-0 overflow-hidden" : "h-auto",
+          isAvatarVisible && videoName && !usePopupPlayer
+            ? "fixed bottom-4 right-4 w-[400px] h-[400px] bg-black/10 rounded-xl flex items-center justify-center overflow-hidden shadow-xl"
+            : "flex justify-center items-center h-[calc(100vh-150px)] w-full relative"
+        )}
       >
-        <VideoBox video={videoRef} audio={audioRef} />
+        <div
+          className={cn(
+            "transition-transform duration-700 ease-in-out",
+            isAvatarVisible && videoName && !usePopupPlayer ? "scale-75 origin-center" : "scale-100"
+          )}
+        >
+          <VideoBox video={videoRef} audio={audioRef} />
+        </div>
       </div>
-      {videoName && showPopup && <VideoPopupPlayer videoName={videoName} />}
-      <div className="flex flex-col items-center">
+
+      {/* Close Button for Video */}
+      {isAvatarVisible && videoName && !usePopupPlayer && (
+        <button
+          onClick={() => setVideoName(null)}
+          className="fixed top-4 right-4 text-white bg-black/50 hover:bg-black rounded-full px-3 py-1 text-xl z-50 transition-all duration-300"
+        >
+          ✕
+        </button>
+      )}
+
+      {/* Interaction Buttons */}
+      <div className="flex flex-col items-center z-50 relative">
         {!isAvatarVisible ? (
           <button
             onClick={handleStart}
@@ -513,18 +536,16 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
                     d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
                   />
                 </svg>
-                <span className="font-abc-repro-mono font-bold">
-                  Talk to Agent
-                </span>
+                <span className="font-abc-repro-mono font-bold">Talk to Agent</span>
               </>
             )}
           </button>
         ) : (
-          <div className="flex items-center gap-4 w-full">
+          <div className="flex items-center gap-4 w-full mt-4">
             <button
               onClick={handleStop}
               className={cn(
-                "mt-4 group text-white flex-grow bg-red hover:rounded-sm hover:bg-white h-[52px] px-6 rounded-[100px] transition-all duration-300"
+                "group text-white flex-grow bg-red hover:rounded-sm hover:bg-white h-[52px] px-6 rounded-[100px] transition-all duration-300"
               )}
             >
               <span className="font-abc-repro-mono group-hover:text-black font-bold w-[164px] transition-all duration-300">
