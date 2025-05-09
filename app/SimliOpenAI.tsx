@@ -274,7 +274,9 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       const audioChunk = audioChunkQueueRef.current.shift();
       if (audioChunk) {
         const chunkDurationMs = (audioChunk.length / 16000) * 1000;
-        simliClient?.sendAudioData(audioChunk);
+        // Convert Int16Array to Uint8Array for simliClient.sendAudioData
+        const uint8Array = new Uint8Array(audioChunk.buffer);
+        simliClient?.sendAudioData(uint8Array);
         console.log(
           "Sent audio chunk to Simli: Duration:",
           chunkDurationMs.toFixed(2),
