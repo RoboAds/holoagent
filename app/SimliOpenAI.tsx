@@ -7,9 +7,21 @@ import cn from "./utils/TailwindMergeAndClsx";
 import IconExit from "@/media/IconExit";
 import IconSparkleLoader from "@/media/IconSparkleLoader";
 
+interface SimliOpenAIProps {
+  simli_faceid: string;
+  openai_voice: "alloy" | "ash" | "ballad" | "coral" | "echo" | "sage" | "shimmer" | "verse";
+  openai_model: string;
+  initialPrompt: string;
+  openai_api_key: string;
+  userId: string;
+  onStart: () => void;
+  onClose: () => void;
+  showDottedFace: boolean;
+}
+
 const simliClient = new SimliClient();
 
-const SimliOpenAI = ({
+const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
   simli_faceid,
   openai_voice,
   openai_model,
@@ -21,27 +33,27 @@ const SimliOpenAI = ({
   showDottedFace,
 }) => {
   // State management
-  const [isLoading, setIsLoading] = useState(false);
-  const [isAvatarVisible, setIsAvatarVisible] = useState(false);
-  const [error, setError] = useState("");
-  const [isRecording, setIsRecording] = useState(false);
-  const [userMessage, setUserMessage] = useState("...");
-  const [videoName, setVideoName] = useState(null);
-  const [useFullscreenVideo] = useState(true);
-  const [avatarPosition, setAvatarPosition] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isAvatarVisible, setIsAvatarVisible] = useState<boolean>(false);
+  const [error, setError] = useState<string>("");
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [userMessage, setUserMessage] = useState<string>("...");
+  const [videoName, setVideoName] = useState<string | null>(null);
+  const [useFullscreenVideo] = useState<boolean>(true);
+  const [avatarPosition, setAvatarPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState<boolean>(false);
 
   // Refs for various components and states
-  const videoRef = useRef(null);
-  const audioRef = useRef(null);
-  const openAIClientRef = useRef(null);
-  const audioContextRef = useRef(null);
-  const streamRef = useRef(null);
-  const processorRef = useRef(null);
-  const audioChunkQueueRef = useRef([]);
-  const isProcessingChunkRef = useRef(false);
-  const avatarRef = useRef(null);
-  const dragStartRef = useRef({ x: 0, y: 0 });
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const openAIClientRef = useRef<RealtimeClient | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const audioChunkQueueRef = useRef<Int16Array[]>([]);
+  const isProcessingChunkRef = useRef<boolean>(false);
+  const avatarRef = useRef<HTMLDivElement>(null);
+  const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   /**
    * Initializes the Simli client with the provided configuration.
@@ -59,7 +71,7 @@ const SimliOpenAI = ({
         enableConsoleLogs: true,
       };
 
-      simliClient.Initialize(SimliConfig);
+      simliClient.Initialize(SimliConfig as any); // `any` due to unknown SimliClient types
       console.log("Simli Client initialized");
     }
   }, [simli_faceid]);
@@ -103,7 +115,7 @@ const SimliOpenAI = ({
             required: ["query", "userid"],
           },
         },
-        async ({ query, userid }) => {
+        async ({ query, userid }: { query: string; userid: string }) => {
           try {
             const result = await fetch("https://app.holoagent.ai/query", {
               method: "POST",
@@ -148,7 +160,7 @@ const SimliOpenAI = ({
             additionalProperties: false,
           },
         },
-        async ({ query, video_url, userid }) => {
+        async ({ query, video_url, userid }: { query: string; video_url?: string; userid: string }) => {
           console.log("play_product_video tool called with parameters:", {
             query,
             video_url,
@@ -201,8 +213,8 @@ const SimliOpenAI = ({
             }
           } catch (err) {
             console.error("Error in play_product_video:", err);
-            setError(`Failed to fetch or play video: ${err.message}`);
-            return { error: "Failed to fetch or play video", details: err.message };
+            setError(`Failed to fetch or play video: ${(err as Error).message}`);
+            return { error: "Failed to fetch or play video", details: (err as Error).message };
           }
         }
       );
@@ -219,14 +231,14 @@ const SimliOpenAI = ({
       setIsAvatarVisible(true);
     } catch (error) {
       console.error("Error initializing OpenAI client:", error);
-      setError(`Failed to initialize OpenAI client: ${error.message}`);
+      setError(`Failed to initialize OpenAI client: ${(error as Error).message}`);
     }
   }, [initialPrompt, openai_model, openai_voice, openai_api_key]);
 
   /**
    * Handles conversation updates, including user and assistant messages.
    */
-  const handleConversationUpdate = useCallback((event) => {
+  const handleConversationUpdate = useCallback((event: any) => {
     console.log("Conversation updated:", event);
     const { item, delta } = event;
 
@@ -277,14 +289,14 @@ const SimliOpenAI = ({
   /**
    * Handles the end of user speech.
    */
-  const handleSpeechStopped = useCallback((event) => {
+  const handleSpeechStopped = useCallback((event: any) => {
     console.log("Speech stopped event received", event);
   }, []);
 
   /**
    * Applies a simple low-pass filter to prevent aliasing of audio
    */
-  const applyLowPassFilter = (data, cutoffFreq, sampleRate) => {
+  const applyLowPassFilter = (data: Int16Array, cutoffFreq: number, sampleRate: number): Int16Array => {
     const numberOfTaps = 31;
     const coefficients = new Float32Array(numberOfTaps);
     const fc = cutoffFreq / sampleRate;
@@ -297,8 +309,7 @@ const SimliOpenAI = ({
         const x = 2 * Math.PI * fc * (i - middle);
         coefficients[i] = Math.sin(x) / (i - middle);
       }
-      coefficients[i] *=
-        0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (numberOfTaps - 1));
+      coefficients[i] *= 0.54 - 0.46 * Math.cos((2 * Math.PI * i) / (numberOfTaps - 1));
     }
 
     const sum = coefficients.reduce((acc, val) => acc + val, 0);
@@ -322,7 +333,7 @@ const SimliOpenAI = ({
   /**
    * Downsamples audio data from one sample rate to another using linear interpolation
    */
-  const downsampleAudio = (audioData, inputSampleRate, outputSampleRate) => {
+  const downsampleAudio = (audioData: Int16Array, inputSampleRate: number, outputSampleRate: number): Int16Array => {
     if (inputSampleRate === outputSampleRate) {
       return audioData;
     }
@@ -331,11 +342,7 @@ const SimliOpenAI = ({
       throw new Error("Upsampling is not supported");
     }
 
-    const filteredData = applyLowPassFilter(
-      audioData,
-      outputSampleRate * 0.45,
-      inputSampleRate
-    );
+    const filteredData = applyLowPassFilter(audioData, outputSampleRate * 0.45, inputSampleRate);
 
     const ratio = inputSampleRate / outputSampleRate;
     const newLength = Math.floor(audioData.length / ratio);
@@ -374,7 +381,7 @@ const SimliOpenAI = ({
       const source = audioContextRef.current.createMediaStreamSource(streamRef.current);
       processorRef.current = audioContextRef.current.createScriptProcessor(2048, 1, 1);
 
-      processorRef.current.onaudioprocess = (e) => {
+      processorRef.current.onaudioprocess = (e: AudioProcessingEvent) => {
         const inputData = e.inputBuffer.getChannelData(0);
         const audioData = new Int16Array(inputData.length);
 
@@ -427,7 +434,7 @@ const SimliOpenAI = ({
       eventListenerSimli();
     } catch (error) {
       console.error("Error starting interaction:", error);
-      setError(`Error starting interaction: ${error.message}`);
+      setError(`Error starting interaction: ${(error as Error).message}`);
     } finally {
       setIsLoading(false);
     }
@@ -486,7 +493,7 @@ const SimliOpenAI = ({
   /**
    * Draggable avatar handlers
    */
-  const handleMouseDown = (e) => {
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (videoName && useFullscreenVideo) {
       setIsDragging(true);
       dragStartRef.current = {
@@ -497,16 +504,13 @@ const SimliOpenAI = ({
     }
   };
 
-  const handleMouseMove = useCallback(
-    (e) => {
-      if (isDragging) {
-        const newX = e.clientX - dragStartRef.current.x;
-        const newY = e.clientY - dragStartRef.current.y;
-        setAvatarPosition({ x: newX, y: newY });
-      }
-    },
-    [isDragging]
-  );
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (isDragging) {
+      const newX = e.clientX - dragStartRef.current.x;
+      const newY = e.clientY - dragStartRef.current.y;
+      setAvatarPosition({ x: newX, y: newY });
+    }
+  }, [isDragging]);
 
   const handleMouseUp = () => {
     setIsDragging(false);
