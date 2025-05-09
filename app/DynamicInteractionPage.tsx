@@ -187,6 +187,7 @@ const DynamicInteractionPage: React.FC = () => {
             openai_model={config.openai_model}
             openai_api_key={config.openai_api_key}
             initialPrompt={config.initialPrompt}
+            userId={config.simli_faceid}
             onStart={handleStart}
             onClose={flushDuration}
             showDottedFace={false}
