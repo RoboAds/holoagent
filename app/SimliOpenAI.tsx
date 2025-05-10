@@ -184,7 +184,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
 
             // Fetch video from knowledge base if no valid video_url
             console.log("No valid video_url provided, fetching from API...");
- Kettscher            const requestPayload = { query, userid: simli_faceid };
+            const requestPayload = { query, userid: simli_faceid };
             console.log("API request payload:", requestPayload);
 
             const result = await fetch("https://app.holoagent.ai/video", {
