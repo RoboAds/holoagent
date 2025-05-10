@@ -1,16 +1,11 @@
 import React, { useState, useRef, useEffect } from "react";
 
-interface VideoPopupPlayerProps {
-  videoName: string | null;
-  onClose: () => void;
-}
-
-const VideoPopupPlayer: React.FC<VideoPopupPlayerProps> = ({ videoName, onClose }) => {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+const VideoPopupPlayer = ({ videoName, onClose }) => {
+  const videoRef = useRef(null);
   const [isVisible, setIsVisible] = useState(false);
 
   // Determine video source type
-  const getVideoSource = (url: string) => {
+  const getVideoSource = (url) => {
     if (url.endsWith(".mp4") || url.endsWith(".mov")) {
       return { type: "s3", url };
     }
