@@ -71,7 +71,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
         enableConsoleLogs: true,
       };
 
-      simliClient.Initialize(SimliConfig as any); // `any` due to unknown SimliClient types
+      simliClient.Initialize(SimliConfig as any);
       console.log("Simli Client initialized");
     }
   }, [simli_faceid]);
@@ -137,19 +137,19 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
         {
           name: "play_product_video",
           description:
-            "Fetches and plays the video of the product based on the query. If the video_url is provided and valid, it will play that video. Otherwise, it will fetch the video URL from the knowledge base.",
+            "Plays a video based on the provided video_url or fetches a video URL from the knowledge base. Supports S3 URLs (.mp4, .mov) and external URLs (YouTube, Vimeo, etc.).",
           parameters: {
             type: "object",
             properties: {
               query: {
                 type: "string",
                 description:
-                  "The query about the product video that will be sent to the knowledge base.",
+                  "The query about the product video to send to the knowledge base if video_url is not provided.",
               },
               video_url: {
                 type: "string",
                 description:
-                  "The video URL to play. If not provided or invalid, the video will be fetched using the query. Must end with .mp4.",
+                  "The video URL to play. Can be an S3 URL (.mp4, .mov) or an external URL (YouTube, Vimeo, etc.). If not provided, the video will be fetched using the query.",
               },
               userid: {
                 type: "string",
@@ -168,16 +168,23 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
           });
 
           try {
-            // Check if video_url is provided and valid (ends with .mp4)
-            if (video_url && video_url.endsWith(".mp4")) {
-              console.log("Valid video_url provided, setting videoName:", video_url);
-              setVideoName(video_url);
-              return { message: "Playing video from provided URL", video_url };
+            // Validate and play provided video_url
+            if (video_url) {
+              const isS3Video = video_url.endsWith(".mp4") || video_url.endsWith(".mov");
+              const isExternalVideo = video_url.includes("youtube.com") || video_url.includes("vimeo.com") || video_url.includes("instagram.com");
+              if (isS3Video || isExternalVideo) {
+                console.log("Valid video_url provided, setting videoName:", video_url);
+                setVideoName(video_url);
+                return { message: "Playing video from provided URL", video_url };
+              } else {
+                console.log("Invalid video_url provided:", video_url);
+                throw new Error("Invalid video URL format");
+              }
             }
 
-            // If no valid video_url, fetch from the knowledge base
+            // Fetch video from knowledge base if no valid video_url
             console.log("No valid video_url provided, fetching from API...");
-            const requestPayload = { query, userid: simli_faceid };
+ Kettscher            const requestPayload = { query, userid: simli_faceid };
             console.log("API request payload:", requestPayload);
 
             const result = await fetch("https://app.holoagent.ai/video", {
@@ -201,11 +208,11 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
               responseData &&
               responseData.response &&
               typeof responseData.response === "string" &&
-              responseData.response.endsWith(".mp4")
+              (responseData.response.endsWith(".mp4") || responseData.response.endsWith(".mov"))
             ) {
               console.log("Valid video URL received from API, setting videoName:", responseData.response);
               setVideoName(responseData.response);
-              setAvatarPosition({ x: 0, y: 0 }); // Reset avatar position
+              setAvatarPosition({ x: 0, y: 0 });
               return { message: "Video fetched and playing", video_url: responseData.response };
             } else {
               console.log("Invalid or missing video URL in response:", responseData);
@@ -274,7 +281,6 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
       const audioChunk = audioChunkQueueRef.current.shift();
       if (audioChunk) {
         const chunkDurationMs = (audioChunk.length / 16000) * 1000;
-        // Convert Int16Array to Uint8Array for simliClient.sendAudioData
         const uint8Array = new Uint8Array(audioChunk.buffer);
         simliClient?.sendAudioData(uint8Array);
         console.log(
