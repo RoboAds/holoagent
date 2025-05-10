@@ -71,7 +71,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
         enableConsoleLogs: true,
       };
 
-      simliClient.Initialize(SimliConfig as any);
+      simliClient.Initialize(SimliConfig as any); // `any` due to unknown SimliClient types
       console.log("Simli Client initialized");
     }
   }, [simli_faceid]);
@@ -207,16 +207,23 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
             if (
               responseData &&
               responseData.response &&
-              typeof responseData.response === "string" &&
-              (responseData.response.endsWith(".mp4") || responseData.response.endsWith(".mov"))
+              typeof responseData.response === "string"
             ) {
-              console.log("Valid video URL received from API, setting videoName:", responseData.response);
-              setVideoName(responseData.response);
-              setAvatarPosition({ x: 0, y: 0 });
-              return { message: "Video fetched and playing", video_url: responseData.response };
+              const videoUrl = responseData.response;
+              const isS3Video = videoUrl.endsWith(".mp4") || videoUrl.endsWith(".mov");
+              const isExternalVideo = videoUrl.includes("youtube.com") || videoUrl.includes("vimeo.com") || videoUrl.includes("instagram.com");
+              if (isS3Video || isExternalVideo) {
+                console.log("Valid video URL received from API, setting videoName:", videoUrl);
+                setVideoName(videoUrl);
+                setAvatarPosition({ x: 0, y: 0 });
+                return { message: "Video fetched and playing", video_url: videoUrl };
+              } else {
+                console.log("Invalid video URL in response:", responseData);
+                throw new Error("Invalid video URL in response");
+              }
             } else {
-              console.log("Invalid or missing video URL in response:", responseData);
-              throw new Error("Invalid or missing video URL in response");
+              console.log("Missing video URL in response:", responseData);
+              throw new Error("Missing video URL in response");
             }
           } catch (err) {
             console.error("Error in play_product_video:", err);
