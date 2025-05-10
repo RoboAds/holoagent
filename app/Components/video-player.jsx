@@ -1,13 +1,43 @@
 import React, { useState, useRef, useEffect } from "react";
 
-const VideoPopupPlayer = ({ videoName, onClose }) => {
-  const videoRef = useRef(null);
+interface VideoPopupPlayerProps {
+  videoName: string | null;
+  onClose: () => void;
+}
+
+const VideoPopupPlayer: React.FC<VideoPopupPlayerProps> = ({ videoName, onClose }) => {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const [isVisible, setIsVisible] = useState(false);
+
+  // Determine video source type
+  const getVideoSource = (url: string) => {
+    if (url.endsWith(".mp4") || url.endsWith(".mov")) {
+      return { type: "s3", url };
+    }
+    if (url.includes("youtube.com") || url.includes("youtu.be")) {
+      const videoId = url.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/)?.[1];
+      if (videoId) {
+        return { type: "youtube", url: `https://www.youtube.com/embed/${videoId}?autoplay=1&controls=1` };
+      }
+    }
+    if (url.includes("vimeo.com")) {
+      const videoId = url.match(/vimeo\.com\/(\d+)/)?.[1];
+      if (videoId) {
+        return { type: "vimeo", url: `https://player.vimeo.com/video/${videoId}?autoplay=1` };
+      }
+    }
+    // Instagram videos typically require authentication or specific handling
+    // For simplicity, assume a direct embed URL is provided
+    if (url.includes("instagram.com")) {
+      return { type: "instagram", url };
+    }
+    return { type: "unknown", url };
+  };
 
   useEffect(() => {
     if (videoName) {
       setIsVisible(true);
-      if (videoRef.current) {
+      if (videoRef.current && getVideoSource(videoName).type === "s3") {
         videoRef.current.play().catch((err) => {
           console.warn("Autoplay failed:", err);
         });
@@ -19,8 +49,16 @@ const VideoPopupPlayer = ({ videoName, onClose }) => {
 
   const handleClose = () => {
     setIsVisible(false);
+    if (videoRef.current) {
+      videoRef.current.pause();
+    }
     onClose();
   };
+
+  if (!videoName) return null;
+
+  const videoSource = getVideoSource(videoName);
+  const isS3Video = videoSource.type === "s3";
 
   return (
     <>
@@ -54,12 +92,10 @@ const VideoPopupPlayer = ({ videoName, onClose }) => {
           }
         `}
       </style>
-      {isVisible && videoName && (
+      {isVisible && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 transition-opacity duration-500">
           <div
-            className={`relative w-full h-full animate-in ${
-              isVisible ? "animate-in" : "animate-out"
-            }`}
+            className={`relative w-full h-full ${isVisible ? "animate-in" : "animate-out"}`}
           >
             <button
               onClick={handleClose}
@@ -67,15 +103,25 @@ const VideoPopupPlayer = ({ videoName, onClose }) => {
             >
               ×
             </button>
-            <video
-              ref={videoRef}
-              src={videoName}
-              controls
-              autoPlay
-              playsInline
-              className="w-full h-full object-contain rounded-none"
-              onEnded={handleClose}
-            />
+            {isS3Video ? (
+              <video
+                ref={videoRef}
+                src={videoSource.url}
+                controls={!isS3Video}
+                autoPlay
+                playsInline
+                className="w-full h-full object-contain rounded-none"
+                onEnded={handleClose}
+              />
+            ) : (
+              <iframe
+                src={videoSource.url}
+                className="w-full h-full"
+                allow="autoplay; fullscreen"
+                allowFullScreen
+                title="Video Player"
+              />
+            )}
           </div>
         </div>
       )}
