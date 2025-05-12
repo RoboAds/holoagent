@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import SimliOpenAI from "./SimliOpenAI";
+import SimliOpenAIPushToTalk from "./SimliOpenAIPushToTalk";
 import { validateCustomer, ValidationResponse } from "./services/validateCustomer";
 import { updateDuration, UpdateDurationResponse } from "./services/updateDuration";
 
@@ -12,7 +13,7 @@ declare module "./services/validateCustomer" {
   }
 }
 
-// Config type for SimliOpenAI
+// Config type for SimliOpenAI and SimliOpenAIPushToTalk
 interface CustomerConfig {
   simli_faceid: string;
   openai_voice: "alloy" | "ash" | "ballad" | "coral" | "echo" | "sage" | "shimmer" | "verse";
@@ -38,6 +39,7 @@ const DynamicInteractionPage: React.FC = () => {
   const [config, setConfig] = useState<CustomerConfig | null>(null);
   const [error, setError] = useState("");
   const [showLimitModal, setShowLimitModal] = useState(false);
+  const [interactionMode, setInteractionMode] = useState<"continuous" | "push-to-talk">("continuous");
 
   const startTimeRef = useRef<number | null>(null);
   const tokenRef = useRef<string | null>(null);
@@ -141,7 +143,6 @@ const DynamicInteractionPage: React.FC = () => {
 
   return (
     <div className="bg-black min-h-screen flex flex-col items-center justify-center font-abc-repro text-sm text-white p-8">
-
       {/* Popup Modal for expired session */}
       {showLimitModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70">
@@ -181,17 +182,45 @@ const DynamicInteractionPage: React.FC = () => {
       {/* Interaction widget */}
       {customerValid && !showLimitModal && config && (
         <div className="flex flex-col items-center gap-6 bg-effect15White p-6 pb-[40px] rounded-xl w-full">
-          <SimliOpenAI
-            simli_faceid={config.simli_faceid}
-            openai_voice={config.openai_voice}
-            openai_model={config.openai_model}
-            openai_api_key={config.openai_api_key}
-            initialPrompt={config.initialPrompt}
-            userId={config.simli_faceid}
-            onStart={handleStart}
-            onClose={flushDuration}
-            showDottedFace={false}
-          />
+          {/* Interaction Mode Toggle */}
+          <div className="flex items-center gap-4">
+            <label className="text-white font-abc-repro-mono">Interaction Mode:</label>
+            <select
+              value={interactionMode}
+              onChange={(e) => setInteractionMode(e.target.value as "continuous" | "push-to-talk")}
+              className="bg-gray-800 text-white rounded px-2 py-1 font-abc-repro-mono"
+            >
+              <option value="continuous">Regular</option>
+              <option value="push-to-talk">Push-to-Talk</option>
+            </select>
+          </div>
+
+          {/* Conditionally render the appropriate component */}
+          {interactionMode === "continuous" ? (
+            <SimliOpenAI
+              simli_faceid={config.simli_faceid}
+              openai_voice={config.openai_voice}
+              openai_model={config.openai_model}
+              openai_api_key={config.openai_api_key}
+              initialPrompt={config.initialPrompt}
+              userId={config.simli_faceid}
+              onStart={handleStart}
+              onClose={flushDuration}
+              showDottedFace={false}
+            />
+          ) : (
+            <SimliOpenAIPushToTalk
+              simli_faceid={config.simli_faceid}
+              openai_voice={config.openai_voice}
+              openai_model={config.openai_model}
+              openai_api_key={config.openai_api_key}
+              initialPrompt={config.initialPrompt}
+              userId={config.simli_faceid}
+              onStart={handleStart}
+              onClose={flushDuration}
+              showDottedFace={false}
+            />
+          )}
         </div>
       )}
     </div>
