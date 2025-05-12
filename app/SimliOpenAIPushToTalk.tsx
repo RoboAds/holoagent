@@ -717,12 +717,17 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
     }, [isRecording, isAssistantSpeaking]);
 
     return (
-      <canvas
-        ref={canvasRef}
-        width={200}
-        height={60}
-        className="mt-2 rounded-md bg-gray-800"
-      />
+      <div className={cn(
+        "fixed bottom-8 left-1/2 transform -translate-x-1/2 z-[1000]",
+        (isRecording || isAssistantSpeaking) ? "opacity-100 animate-visualizer-show" : "opacity-0 pointer-events-none"
+      )}>
+        <canvas
+          ref={canvasRef}
+          width={300}
+          height={80}
+          className="rounded-lg  shadow-lg"
+        />
+      </div>
     );
   };
 
@@ -800,6 +805,19 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
               transform: scale(0.8);
             }
           }
+          .animate-visualizer-show {
+            animation: visualizerShow 0.3s ease-out forwards;
+          }
+          @keyframes visualizerShow {
+            from {
+              opacity: 0;
+              transform: translate(-50%, 10px);
+            }
+            to {
+              opacity: 1;
+              transform: translate(-50%, 0);
+            }
+          }
         `}
       </style>
 
@@ -808,6 +826,9 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
 
       {/* Main Content */}
       <div className="relative h-screen flex flex-col items-center justify-center overflow-hidden">
+        {/* Audio Visualizer */}
+        <AudioVisualizer />
+
         {/* Avatar Wrapper - Centered or Draggable Bottom-Right */}
         <div
           ref={avatarRef}
@@ -902,14 +923,13 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
                   <IconExit className="group-hover:invert-0 group-hover:brightness-0 transition-all duration-300" />
                 </button>
               </div>
-              {(isRecording || isAssistantSpeaking) && <AudioVisualizer />}
             </div>
           )}
         </div>
 
         {/* Error Message */}
         {error && (
-          <div className="text-red-500 text-center mt-4 font-abc-repro-mono absolute bottom-4">
+          <div className="text-red-500 text-center mt-4 font-abc-repro-mono absolute bottom-4 z-50">
             {error}
           </div>
         )}
