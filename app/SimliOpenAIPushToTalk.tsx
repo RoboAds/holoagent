@@ -210,7 +210,7 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
             ) {
               const videoUrl = responseData.response;
               const isS3Video = videoUrl.endsWith(".mp4") || videoUrl.endsWith(".mov");
-              const isExternalVideo = videoUrl.includes("youtube.com") || videoUrl.includes("vimeo.com") || video_url.includes("instagram.com");
+              const isExternalVideo = videoUrl.includes("youtube.com") || videoUrl.includes("vimeo.com") || videoUrl.includes("instagram.com");
               if (isS3Video || isExternalVideo) {
                 console.log("Valid video URL received from API, setting videoName:", videoUrl);
                 setVideoName(videoUrl);
