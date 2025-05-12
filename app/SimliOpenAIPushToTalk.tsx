@@ -37,6 +37,7 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
   const [isAvatarVisible, setIsAvatarVisible] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [isAssistantSpeaking, setIsAssistantSpeaking] = useState<boolean>(false);
   const [userMessage, setUserMessage] = useState<string>("...");
   const [videoName, setVideoName] = useState<string | null>(null);
   const [useFullscreenVideo] = useState<boolean>(true);
@@ -55,7 +56,7 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
   const isProcessingChunkRef = useRef<boolean>(false);
   const avatarRef = useRef<HTMLDivElement>(null);
   const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const isSpacePressedRef = useRef<boolean>(false);
+  const isSPressedRef = useRef<boolean>(false);
 
   /**
    * Initializes the Simli client with the provided configuration.
@@ -259,12 +260,16 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
       if (delta && delta.audio) {
         const downsampledAudio = downsampleAudio(delta.audio, 24000, 16000);
         audioChunkQueueRef.current.push(downsampledAudio);
+        setIsAssistantSpeaking(true); // Set assistant speaking when audio is received
         if (!isProcessingChunkRef.current) {
           processNextAudioChunk();
         }
+      } else {
+        setIsAssistantSpeaking(false); // Reset when no audio delta
       }
     } else if (item.type === "message" && item.role === "user") {
       setUserMessage(item.content[0].transcript || "...");
+      setIsAssistantSpeaking(false); // Ensure assistant speaking is off during user input
     }
   }, []);
 
@@ -275,6 +280,7 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
     console.warn("User interrupted the conversation");
     simliClient?.ClearBuffer();
     openAIClientRef.current?.cancelResponse("");
+    setIsAssistantSpeaking(false);
   };
 
   /**
@@ -296,6 +302,8 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
         isProcessingChunkRef.current = false;
         processNextAudioChunk();
       }
+    } else {
+      setIsAssistantSpeaking(false); // Reset when no more chunks
     }
   }, []);
 
@@ -475,6 +483,7 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
       audioContextRef.current.close();
       audioContextRef.current = null;
     }
+    setIsAssistantSpeaking(false);
     onClose();
     console.log("Interaction stopped");
   }, [stopRecording, onClose]);
@@ -499,13 +508,13 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
   }, [stopRecording]);
 
   /**
-   * Keyboard event handlers for Space key
+   * Keyboard event handlers for 'S' key
    */
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (e.code === "Space" && !isSpacePressedRef.current && isAvatarVisible && !isButtonDisabled) {
-        e.preventDefault(); // Prevent default behavior (e.g., scrolling)
-        isSpacePressedRef.current = true;
+      if (e.code === "KeyS" && !isSPressedRef.current && isAvatarVisible && !isButtonDisabled) {
+        e.preventDefault(); // Prevent default behavior
+        isSPressedRef.current = true;
         handlePushToTalkStart();
       }
     },
@@ -514,9 +523,9 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
 
   const handleKeyUp = useCallback(
     (e: KeyboardEvent) => {
-      if (e.code === "Space" && isSpacePressedRef.current) {
+      if (e.code === "KeyS" && isSPressedRef.current) {
         e.preventDefault();
-        isSpacePressedRef.current = false;
+        isSPressedRef.current = false;
         handlePushToTalkEnd();
       }
     },
@@ -540,6 +549,7 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
           audioContextRef.current.close();
           audioContextRef.current = null;
         }
+        setIsAssistantSpeaking(false);
       });
     }
   }, [initializeOpenAIClient]);
@@ -579,31 +589,140 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
   };
 
   /**
-   * Visualize mic audio
+   * Audio Visualizer with Sound Wave Animation
    */
   const AudioVisualizer = () => {
-    const [volume, setVolume] = useState(0);
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const userAnalyserRef = useRef<AnalyserNode | null>(null);
+    const assistantAnalyserRef = useRef<AnalyserNode | null>(null);
+    const animationFrameRef = useRef<number | null>(null);
+    const assistantSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+
+    // Function to map amplitude to color (for assistant speaking)
+    const getWaveColor = (amplitude: number): string => {
+      const normalized = amplitude / 50; // Normalize to [0, 1]
+      if (normalized < 0.33) {
+        return "#3b82f6"; // Blue for low amplitude
+      } else if (normalized < 0.66) {
+        return "#10b981"; // Green for medium amplitude
+      } else {
+        return "#ef4444"; // Red for high amplitude
+      }
+    };
 
     useEffect(() => {
-      const interval = setInterval(() => {
-        setVolume(Math.random() * 100);
-      }, 100);
+      if (!audioContextRef.current || (!isRecording && !isAssistantSpeaking)) return;
 
-      return () => clearInterval(interval);
-    }, []);
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const width = canvas.width;
+      const height = canvas.height;
+
+      // Set up analyser for user audio (when recording)
+      if (isRecording && streamRef.current) {
+        userAnalyserRef.current = audioContextRef.current.createAnalyser();
+        userAnalyserRef.current.fftSize = 2048;
+        const source = audioContextRef.current.createMediaStreamSource(streamRef.current);
+        source.connect(userAnalyserRef.current);
+      }
+
+      // Set up analyser for assistant audio (when speaking)
+      if (isAssistantSpeaking && audioRef.current) {
+        assistantAnalyserRef.current = audioContextRef.current.createAnalyser();
+        assistantAnalyserRef.current.fftSize = 2048;
+        assistantSourceRef.current = audioContextRef.current.createMediaElementSource(audioRef.current);
+        assistantSourceRef.current.connect(assistantAnalyserRef.current);
+        assistantAnalyserRef.current.connect(audioContextRef.current.destination); // Ensure audio plays
+      }
+
+      const bufferLength = userAnalyserRef.current?.frequencyBinCount || 2048;
+      const dataArray = new Uint8Array(bufferLength);
+
+      const drawWave = () => {
+        if (!ctx || (!userAnalyserRef.current && !assistantAnalyserRef.current)) return;
+
+        // Choose analyser based on state
+        const analyser = isRecording ? userAnalyserRef.current : assistantAnalyserRef.current;
+        if (!analyser) return;
+
+        // Get time-domain data (waveform)
+        analyser.getByteTimeDomainData(dataArray);
+
+        // Calculate RMS amplitude to determine volume
+        let sum = 0;
+        for (let i = 0; i < bufferLength; i++) {
+          const value = (dataArray[i] - 128) / 128; // Normalize to [-1, 1]
+          sum += value * value;
+        }
+        const rms = Math.sqrt(sum / bufferLength);
+        const amplitude = Math.min(rms * 100, 50); // Scale amplitude (max height 50px)
+
+        // Clear canvas
+        ctx.clearRect(0, 0, width, height);
+
+        // Draw sound wave
+        ctx.beginPath();
+        ctx.strokeStyle = isAssistantSpeaking ? getWaveColor(amplitude) : "#ffffff"; // White for user, dynamic for assistant
+        ctx.lineWidth = 2;
+
+        const sliceWidth = width / bufferLength;
+        let x = 0;
+
+        // Adjust frequency (inverse of wavelength) based on amplitude
+        const baseFrequency = 0.05; // Base frequency (lower = longer wavelength)
+        const frequency = baseFrequency + (amplitude / 50) * 0.05; // Increase frequency with volume
+
+        for (let i = 0; i < bufferLength; i++) {
+          const t = i / bufferLength;
+          const waveValue = Math.sin(t * Math.PI * 2 * frequency * bufferLength) * amplitude;
+          const y = height / 2 + waveValue;
+
+          if (i === 0) {
+            ctx.moveTo(x, y);
+          } else {
+            ctx.lineTo(x, y);
+          }
+
+          x += sliceWidth;
+        }
+
+        ctx.stroke();
+
+        // Continue animation
+        animationFrameRef.current = requestAnimationFrame(drawWave);
+      };
+
+      // Start animation
+      drawWave();
+
+      return () => {
+        // Cleanup
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+        }
+        if (userAnalyserRef.current) {
+          userAnalyserRef.current.disconnect();
+        }
+        if (assistantAnalyserRef.current) {
+          assistantAnalyserRef.current.disconnect();
+        }
+        if (assistantSourceRef.current) {
+          assistantSourceRef.current.disconnect();
+        }
+      };
+    }, [isRecording, isAssistantSpeaking]);
 
     return (
-      <div className="flex items-end justify-center space-x-1 h-5">
-        {[...Array(5)].map((_, i) => (
-          <div
-            key={i}
-            className="w-2 bg-black transition-all duration-300 ease-in-out"
-            style={{
-              height: `${Math.min(100, volume + Math.random() * 20)}%`,
-            }}
-          />
-        ))}
-      </div>
+      <canvas
+        ref={canvasRef}
+        width={200}
+        height={60}
+        className="mt-2 rounded-md bg-gray-800"
+      />
     );
   };
 
@@ -618,7 +737,7 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
     };
   }, [isDragging, handleMouseMove]);
 
-  // Add keyboard event listeners for Space key
+  // Add keyboard event listeners for 'S' key
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
@@ -755,33 +874,35 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
               </button>
             </div>
           ) : (
-            <div className="flex items-center justify-center gap-4 w-full">
-              <button
-                onMouseDown={handlePushToTalkStart}
-                onTouchStart={handlePushToTalkStart}
-                onMouseUp={handlePushToTalkEnd}
-                onTouchEnd={handlePushToTalkEnd}
-                onMouseLeave={handlePushToTalkEnd}
-                disabled={isButtonDisabled}
-                className={cn(
-                  "mt-4 text-white flex-grow bg-blue-500 hover:rounded-sm hover:bg-opacity-70 h-[52px] px-6 rounded-[100px] transition-all duration-300",
-                  isRecording && "bg-[#1B1B1B] rounded-sm hover:bg-opacity-100",
-                  isButtonDisabled && "opacity-50 cursor-not-allowed"
-                )}
-              >
-                <span className="font-abc-repro-mono font-bold w-[164px]">
-                  {isRecording ? "Release to Stop" : "Push & hold to talk (or Space)"}
-                </span>
-              </button>
-              <button
-                onClick={handleStop}
-                className={cn(
-                  "group w-[52px] h-[52px] flex items-center mt-4 bg-red-500 text-white justify-center rounded-[100px] backdrop-blur transition-all duration-300 hover:bg-white hover:text-black hover:rounded-sm"
-                )}
-              >
-                <IconExit className="group-hover:invert-0 group-hover:brightness-0 transition-all duration-300" />
-              </button>
-              {isRecording && <AudioVisualizer />}
+            <div className="flex flex-col items-center justify-center gap-4 w-full">
+              <div className="flex items-center justify-center gap-4 w-full">
+                <button
+                  onMouseDown={handlePushToTalkStart}
+                  onTouchStart={handlePushToTalkStart}
+                  onMouseUp={handlePushToTalkEnd}
+                  onTouchEnd={handlePushToTalkEnd}
+                  onMouseLeave={handlePushToTalkEnd}
+                  disabled={isButtonDisabled}
+                  className={cn(
+                    "mt-4 text-white flex-grow bg-blue-500 hover:rounded-sm hover:bg-opacity-70 h-[52px] px-6 rounded-[100px] transition-all duration-300",
+                    isRecording && "bg-[#1B1B1B] rounded-sm hover:bg-opacity-100",
+                    isButtonDisabled && "opacity-50 cursor-not-allowed"
+                  )}
+                >
+                  <span className="font-abc-repro-mono font-bold w-[164px]">
+                    {isRecording ? "Release to Stop" : "Push & hold to talk (or S)"}
+                  </span>
+                </button>
+                <button
+                  onClick={handleStop}
+                  className={cn(
+                    "group w-[52px] h-[52px] flex items-center mt-4 bg-red-500 text-white justify-center rounded-[100px] backdrop-blur transition-all duration-300 hover:bg-white hover:text-black hover:rounded-sm"
+                  )}
+                >
+                  <IconExit className="group-hover:invert-0 group-hover:brightness-0 transition-all duration-300" />
+                </button>
+              </div>
+              {(isRecording || isAssistantSpeaking) && <AudioVisualizer />}
             </div>
           )}
         </div>
