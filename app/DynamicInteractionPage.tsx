@@ -75,6 +75,7 @@ const DynamicInteractionPage: React.FC = () => {
         if (resp.data.voice_id && validVoices.includes(resp.data.voice_id as any)) {
           voice = resp.data.voice_id as CustomerConfig["openai_voice"];
         }
+        const modifiedInitialPrompt = `Current userid is ${resp.data.face_id}. ${resp.data.initialPrompt || "Hello Welcome"}`;
 
         // Set up config
         setConfig({
@@ -82,7 +83,7 @@ const DynamicInteractionPage: React.FC = () => {
           openai_voice: voice,
           openai_api_key: resp.data.openai_api_key || "",
           openai_model: resp.data.openai_model || "gpt-4o-mini-realtime-preview-2024-12-17",
-          initialPrompt: resp.data.initialPrompt || "Your default prompt here",
+          initialPrompt: modifiedInitialPrompt,
           logo_url: resp.data.logo_url || "",
         });
 
