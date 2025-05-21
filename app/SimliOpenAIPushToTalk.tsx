@@ -120,7 +120,7 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
         },
         async ({ query, userid }: { query: string; userid: string }) => {
           try {
-            const result = await fetch("https://app.holoagent.ai/query", {
+            const result = await fetch("https://holoagent.app.n8n.cloud/webhook/query", {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
