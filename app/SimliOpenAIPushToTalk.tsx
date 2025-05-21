@@ -188,7 +188,7 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
             const requestPayload = { query, userid: simli_faceid };
             console.log("API request payload:", requestPayload);
 
-            const result = await fetch("https://app.holoagent.ai/video", {
+            const result = await fetch("https://holoagent.app.n8n.cloud/webhook/video", {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
