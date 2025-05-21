@@ -117,7 +117,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
         },
         async ({ query, userid }: { query: string; userid: string }) => {
           try {
-            const result = await fetch("https://app.holoagent.ai/query", {
+            const result = await fetch("https://holoagent.app.n8n.cloud/webhook/query", {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
@@ -187,7 +187,7 @@ const SimliOpenAI: React.FC<SimliOpenAIProps> = ({
             const requestPayload = { query, userid: simli_faceid };
             console.log("API request payload:", requestPayload);
 
-            const result = await fetch("https://app.holoagent.ai/video", {
+            const result = await fetch("https://holoagent.app.n8n.cloud/webhook/video", {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
