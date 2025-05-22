@@ -98,43 +98,52 @@ const SimliOpenAIPushToTalk: React.FC<SimliOpenAIPushToTalkProps> = ({
         input_audio_transcription: { model: "whisper-1" },
       });
 
-      openAIClientRef.current.addTool(
-        {
-          name: "get_product_details",
-          description:
-            "retrieves product details from knowledge base about the product like price, features, and description",
-          parameters: {
-            type: "object",
-            properties: {
-              query: {
-                type: "string",
-                description: "This is the question about the product that user needs from knowledge base",
-              },
-              userid: {
-                type: "string",
-                description: "This the user id that this llm will send to knowledge base llm. Send the current user id",
-              },
-            },
-            required: ["query", "userid"],
-          },
+openAIClientRef.current.addTool(
+  {
+    name: "get_product_details",
+    description:
+      "retrieves product details from knowledge base about the product like price, features, and description",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "This is the question about the product that user needs from knowledge base",
         },
-        async ({ query, userid }: { query: string; userid: string }) => {
-          try {
-            const result = await fetch("https://holoagent.app.n8n.cloud/webhook/query", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ query, userid }),
-            });
-            if (!result.ok) throw new Error("Failed to fetch product details");
-            return await result.json();
-          } catch (err) {
-            console.error("Error fetching product details:", err);
-            return { error: "Failed to retrieve product details" };
-          }
-        }
-      );
+        userid: {
+          type: "string",
+          description: "This the user id that this llm will send to knowledge base llm. Send the current user id",
+        },
+      },
+      required: ["query", "userid"],
+    },
+  },
+  async ({ query, userid }: { query: string; userid: string }) => {
+    try {
+      const result = await fetch("https://holoagent.app.n8n.cloud/webhook/query", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query, userid }),
+      });
+
+      if (!result.ok) throw new Error("Failed to fetch product details");
+
+      // Use result.text() instead of result.json() since the response is plain text
+      const textResponse = await result.text();
+
+      // Return the text response in a structured format
+      return {
+        success: true,
+        description: textResponse.trim(),
+      };
+    } catch (err) {
+      console.error("Error fetching product details:", err);
+      return { error: "Failed to retrieve product details" };
+    }
+  }
+);
 
       openAIClientRef.current.addTool(
         {
